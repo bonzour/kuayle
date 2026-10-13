@@ -2,6 +2,7 @@ name: Security Scan
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   pull_request:
     branches: [main]
@@ -104,6 +105,11 @@ jobs:
       max-parallel: 4
       matrix:
         include:
+          - id: updater
+            name: Updater
+            context: ./BE
+            dockerfile: ./BE/Dockerfile.updater
+            build_args: ''
           - id: gateway
             name: Gateway
             context: ./BE
