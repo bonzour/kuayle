@@ -45,7 +45,7 @@ test(
 test('read_only preset expands to all read scopes including dev_machine:read', () => {
 	const expected = RESOURCE_ROWS.flatMap((row) => row.readScopes);
 	assert.deepEqual(sorted(PRESET_SCOPES.read_only), sorted(expected));
-	assert.equal(PRESET_SCOPES.read_only.length, 15);
+	assert.equal(PRESET_SCOPES.read_only.length, 16);
 });
 
 test('developer preset adds issue create/update and label manage, but not delete', () => {
@@ -56,6 +56,18 @@ test('developer preset adds issue create/update and label manage, but not delete
 	assert.ok(!scopes.includes('issue:delete_own'));
 	assert.ok(!scopes.includes('workspace:manage'));
 	assert.ok(!scopes.includes('member:invite'));
+});
+
+test('Efforts writes require Full access or an explicit resource selection', () => {
+	const row = RESOURCE_ROWS.find((row) => row.key === 'efforts');
+	assert.ok(row);
+	for (const preset of ['read_only', 'developer']) {
+		assert.ok(PRESET_SCOPES[preset].includes('efforts:read'));
+		assert.ok(!PRESET_SCOPES[preset].includes('efforts:write'));
+	}
+	assert.ok(!PRESET_SCOPES.triage_bot.includes('efforts:read'));
+	assert.ok(PRESET_SCOPES.full_access.includes('efforts:write'));
+	assert.deepEqual(sorted(applyLevel(new Set(), row, 'write')), ['efforts:read', 'efforts:write']);
 });
 
 test('triage bot preset matches the documented minimal set', () => {

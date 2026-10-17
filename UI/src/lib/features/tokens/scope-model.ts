@@ -22,6 +22,7 @@ export interface ResourceRow {
 
 export const RESOURCE_ROWS: ResourceRow[] = [
 	{ key: 'issues', readScopes: ['issues:read'], writeScopes: ['issue:create', 'issue:update', 'issue:delete_own'] },
+	{ key: 'efforts', readScopes: ['efforts:read'], writeScopes: ['efforts:write'] },
 	{ key: 'comments', readScopes: ['comments:read'], writeScopes: [], note: 'comments_write_note' },
 	{ key: 'projects', readScopes: ['projects:read'], writeScopes: ['project:manage'] },
 	{ key: 'cycles', readScopes: ['cycles:read'], writeScopes: [] },

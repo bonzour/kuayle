@@ -1176,6 +1176,7 @@
 	"settings.tokens.res_cycles": "Cycles",
 	"settings.tokens.res_dev_machines": "Dev machines",
 	"settings.tokens.res_issues": "Issues",
+	"settings.tokens.res_efforts": "Efforts",
 	"settings.tokens.res_labels": "Labels",
 	"settings.tokens.res_members": "Members",
 	"settings.tokens.res_notifications": "Notifications",

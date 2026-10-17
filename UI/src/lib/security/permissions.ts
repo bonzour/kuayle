@@ -2,6 +2,8 @@ import type { Role } from './roles';
 
 const ROLE_PERMISSIONS: Record<Role, string[]> = {
 	owner: [
+		'efforts:read',
+		'efforts:write',
 		'workspace:manage',
 		'team:manage',
 		'issue:create',
@@ -16,6 +18,8 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
 		'view:manage'
 	],
 	admin: [
+		'efforts:read',
+		'efforts:write',
 		'team:manage',
 		'issue:create',
 		'issues:read',
@@ -29,6 +33,8 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
 		'view:manage'
 	],
 	member: [
+		'efforts:read',
+		'efforts:write',
 		'issue:create',
 		'issues:read',
 		'issue:update',
@@ -38,7 +44,7 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
 		'cycle:manage',
 		'view:manage'
 	],
-	guest: ['issues:read']
+	guest: ['issues:read', 'efforts:read']
 };
 
 export function hasPermission(role: Role, permission: string): boolean {

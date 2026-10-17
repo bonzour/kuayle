@@ -41,6 +41,7 @@ type appHandlers struct {
 	workspace         *handler.WorkspaceHandler
 	team              *handler.TeamHandler
 	issue             *handler.IssueHandler
+	effort            *handler.EffortHandler
 	label             *handler.LabelHandler
 	project           *handler.ProjectHandler
 	notif             *handler.NotificationHandler
@@ -184,6 +185,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodPost, "/issues/:identifier/sub-issues", h.issue.CreateSubIssue, "issue:create")
 	scoped(ws, http.MethodPost, "/issues/:identifier/sub-issues/bulk", h.issue.BulkCreateSubIssues, "issue:create")
 	scoped(ws, http.MethodGet, "/issues/:identifier/history", h.issue.GetHistory, "issues:read")
+	// T-01 exposes reads only. Efforts commands require T-02 and US-18/19.
+	scoped(ws, http.MethodGet, "/efforts/settings", h.effort.Settings, "efforts:read")
+	scoped(ws, http.MethodGet, "/issues/:identifier/efforts", h.effort.Summary, "efforts:read")
+	scoped(ws, http.MethodGet, "/issues/:identifier/efforts/worklogs", h.effort.Worklogs, "efforts:read")
 	scoped(ws, http.MethodPost, "/issues/:identifier/triage/accept", h.issue.TriageAccept, "issue:update")
 	scoped(ws, http.MethodPost, "/issues/:identifier/triage/decline", h.issue.TriageDecline, "issue:update")
 

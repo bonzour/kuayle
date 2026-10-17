@@ -1176,6 +1176,7 @@
 	"settings.tokens.res_cycles": "週期",
 	"settings.tokens.res_dev_machines": "開發機",
 	"settings.tokens.res_issues": "議題",
+	"settings.tokens.res_efforts": "工作量",
 	"settings.tokens.res_labels": "標籤",
 	"settings.tokens.res_members": "成員",
 	"settings.tokens.res_notifications": "通知",

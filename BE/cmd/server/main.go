@@ -56,6 +56,7 @@ func main() {
 	hub := realtime.NewHub(workspaceRepo.RealtimeAccess)
 	teamRepo := repository.NewTeamRepository(db)
 	issueRepo := repository.NewIssueRepository(db)
+	effortRepo := repository.NewEffortRepository(db)
 	labelRepo := repository.NewLabelRepository(db)
 	commentRepo := repository.NewCommentRepository(db)
 	projectRepo := repository.NewProjectRepository(db)
@@ -87,6 +88,7 @@ func main() {
 	notifSvc := service.NewNotificationService(notifRepo)
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub, notifSvc, projectRepo)
 	labelSvc := service.NewLabelService(labelRepo)
+	effortSvc := service.NewEffortService(effortRepo)
 	commentSvc := service.NewCommentService(commentRepo, issueRepo, hub, notifSvc)
 	projectSvc := service.NewProjectService(projectRepo)
 	relationSvc := service.NewIssueRelationService(relationRepo, issueRepo)
@@ -131,6 +133,7 @@ func main() {
 	teamH := handler.NewTeamHandler(teamSvc)
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo, projectRepo, cycleRepo, relationSvc)
 	labelH := handler.NewLabelHandler(labelSvc)
+	effortH := handler.NewEffortHandler(effortSvc)
 	projectH := handler.NewProjectHandler(projectSvc)
 	notifH := handler.NewNotificationHandler(notifSvc)
 	wsH := handler.NewWSHandler(hub)
@@ -215,6 +218,7 @@ func main() {
 		workspace:         workspaceH,
 		team:              teamH,
 		issue:             issueH,
+		effort:            effortH,
 		label:             labelH,
 		project:           projectH,
 		notif:             notifH,

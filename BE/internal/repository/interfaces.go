@@ -151,6 +151,14 @@ type IssueHistoryRepo interface {
 	ListByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.IssueHistory, error)
 }
 
+// EffortRepo exposes only reads until transactional commands and policy checks
+// are implemented together in T-02 and US-18/19.
+type EffortRepo interface {
+	Settings(ctx context.Context, workspaceID uuid.UUID) (*domain.EffortSettings, error)
+	Summary(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.EffortSummary, error)
+	Worklogs(ctx context.Context, workspaceID uuid.UUID, identifier string, page int) (*dto.ListResponse[domain.EffortWorklog], error)
+}
+
 type ViewRepo interface {
 	Create(ctx context.Context, view *domain.View) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.View, error)

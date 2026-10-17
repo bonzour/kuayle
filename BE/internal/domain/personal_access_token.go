@@ -84,8 +84,11 @@ func (t *PersonalAccessToken) Active() bool {
 }
 
 // validTokenScopes is the public contract of scopes: the write permission
-// codes already enforced by route annotations, plus the *:read codes.
+// codes enforced by route annotations, the *:read codes, and the Efforts write
+// contract reserved until transactional command routes are enabled.
 var validTokenScopes = map[string]bool{
+	PermEffortsRead:  true,
+	PermEffortsWrite: true,
 	// Write codes (as annotated on routes)
 	PermWorkspaceManage:   true,
 	PermWorkspaceTransfer: true,
