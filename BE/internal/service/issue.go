@@ -427,6 +427,11 @@ func (s *IssueService) List(ctx context.Context, workspaceID uuid.UUID, params d
 }
 
 func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID, identifier string, req dto.UpdateIssueRequest) (*domain.Issue, error) {
+	if req.Status != nil || req.StatusID != nil {
+		if err := domain.CheckEffortToken(ctx); err != nil {
+			return nil, err
+		}
+	}
 	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
 	if err != nil || issue == nil {
 		return nil, fmt.Errorf("issue not found")
@@ -512,6 +517,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		changes.newMentions = newMentionedUserIDs(oldDescription, *req.Description)
 	}
 	statusChanged := false
+	var historyOldStatus, historyNewStatus *string
 	if req.StatusID != nil {
 		sid, err := uuid.Parse(*req.StatusID)
 		if err == nil {
@@ -532,7 +538,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 					issue.StatusID = &sid
 					// Update legacy status field for backward compat
 					issue.Status = domain.IssueStatus(newStatus.Slug)
-					s.recordHistory(ctx, issue.ID, userID, "status", &oldName, &newName)
+					historyOldStatus, historyNewStatus = &oldName, &newName
 					changes.addField("status")
 				} else {
 					statusChanged = false
@@ -543,7 +549,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		old := string(issue.Status)
 		issue.Status = domain.IssueStatus(*req.Status)
 		statusChanged = true
-		s.recordHistory(ctx, issue.ID, userID, "status", &old, req.Status)
+		historyOldStatus, historyNewStatus = &old, req.Status
 		changes.addField("status")
 		// Also update status_id to match the new legacy status slug
 		ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, issue.TeamID, *req.Status)
@@ -663,6 +669,9 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 	if err := s.issueRepo.Update(ctx, issue); err != nil {
 		return nil, err
 	}
+	if historyNewStatus != nil {
+		s.recordHistory(ctx, issue.ID, userID, "status", historyOldStatus, historyNewStatus)
+	}
 
 	if req.LabelIDs != nil {
 		// Track label changes
@@ -764,6 +773,11 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID, actorID uuid.UUI
 }
 
 func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID, identifier string, accept bool) (*domain.Issue, error) {
+	if !accept {
+		if err := domain.CheckEffortToken(ctx); err != nil {
+			return nil, err
+		}
+	}
 	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
 	if err != nil || issue == nil {
 		return nil, fmt.Errorf("issue not found")
@@ -772,12 +786,13 @@ func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID
 		return nil, fmt.Errorf("issue is already triaged")
 	}
 
+	var historyOldStatus, historyNewStatus *string
 	issue.Triaged = true
 	if !accept {
 		old := string(issue.Status)
 		issue.Status = domain.IssueStatusCancelled
 		newVal := string(domain.IssueStatusCancelled)
-		s.recordHistory(ctx, issue.ID, userID, "status", &old, &newVal)
+		historyOldStatus, historyNewStatus = &old, &newVal
 		// Look up the team's cancelled status
 		cancelledStatus, _ := s.teamStatusRepo.GetByTeamAndSlug(ctx, issue.TeamID, string(domain.IssueStatusCancelled))
 		if cancelledStatus != nil {
@@ -787,6 +802,9 @@ func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID
 
 	if err := s.issueRepo.Update(ctx, issue); err != nil {
 		return nil, err
+	}
+	if historyNewStatus != nil {
+		s.recordHistory(ctx, issue.ID, userID, "status", historyOldStatus, historyNewStatus)
 	}
 	if !accept {
 		s.applyStatusAutomation(ctx, workspaceID, userID, issue, map[uuid.UUID]bool{})
@@ -884,6 +902,11 @@ func (s *IssueService) CountSubIssuesForIssues(ctx context.Context, issueIDs []u
 }
 
 func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.UUID, req dto.BulkUpdateIssueRequest) (int, error) {
+	if req.Status != nil || req.StatusID != nil {
+		if err := domain.CheckEffortToken(ctx); err != nil {
+			return 0, err
+		}
+	}
 	issueIDs := make([]uuid.UUID, len(req.IssueIDs))
 	for i, id := range req.IssueIDs {
 		parsed, err := uuid.Parse(id)

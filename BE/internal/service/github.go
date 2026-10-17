@@ -927,7 +927,7 @@ func (s *GitHubService) applyAutoTransition(ctx context.Context, workspaceID uui
 		}
 	}
 
-	if err := s.issueRepo.Update(ctx, issue); err != nil {
+	if err := s.issueRepo.Update(domain.WithGitHubEffortActor(ctx), issue); err != nil {
 		log.WithError(err).WithField("issue_id", issue.ID).Warn("failed to auto-transition issue")
 		return
 	}
@@ -1001,7 +1001,7 @@ func (s *GitHubService) moveIssueToCompleted(ctx context.Context, workspaceID uu
 	old := string(issue.Status)
 	issue.Status = domain.IssueStatus(completedStatus.Slug)
 	issue.StatusID = &completedStatus.ID
-	if err := s.issueRepo.Update(ctx, issue); err != nil {
+	if err := s.issueRepo.Update(domain.WithGitHubEffortActor(ctx), issue); err != nil {
 		log.WithError(err).WithField("issue_id", issue.ID).Warn("failed to auto-close issue")
 		return
 	}

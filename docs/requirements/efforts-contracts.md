@@ -4,6 +4,10 @@ Decisioni del 2026-10-17, branch `feature/efforts`, baseline precedente `918cc47
 Fonte funzionale: [requisiti confermati](efforts.md), EFF-001–041 e AC-001–051.
 Attività: [T-01](../backlog/efforts.md).
 
+Aggiornamento T-02 del 2026-10-17: i comandi interni, i lock e le chiusure sono
+implementati e verificati in [efforts-transactions.md](efforts-transactions.md).
+Le nuove API di scrittura Efforts rimangono non esposte.
+
 Questo documento distingue i contratti implementati dalle scritture future.
 T-01 introduce migrazione 47, modelli e API di lettura; non completa T-02,
 le policy di scrittura US-18/19, l'attività US-21 o il trasferimento US-24/25.
@@ -128,10 +132,11 @@ conteggio effettivo. Una risorsa non accessibile restituisce lo stesso 404 di un
 inesistente. L'ordinamento è stabile sullo stato letto; pagine successive possono
 cambiare durante modifiche concorrenti e il client dovrà ricaricarle con US-23.
 
-## 3. Contratti delle scritture future
+## 3. Contratti di scrittura e comandi interni
 
-Sono definiti DTO Go/TypeScript, ma nessuna route o funzione client di mutazione.
-I seguenti contratti richiedono transazioni e policy T-02/US-18/19 prima dell'uso:
+Sono definiti DTO Go/TypeScript e comandi transazionali interni T-02, ma nessuna
+route o funzione client di mutazione. L'esposizione dei seguenti contratti richiede
+il completamento delle policy sui canali US-18/19:
 
 | Comando | Campi oltre all'involucro comune |
 | --- | --- |
@@ -168,8 +173,8 @@ le chiavi JSON; risolvere gli identificatori di destinazione a UUID prima del ha
 normalizzare descrizione omessa a null. La chiave non deriva dal contenuto: due
 invii intenzionali identici usano UUID differenti. Non condividere chiavi fra comandi.
 
-T-02 dovrà ricontrollare autorizzazioni e attivazione dopo le attese, riconoscere
-un tentativo già committato prima del controllo di revisione e salvare ricevuta,
+T-02 ricontrolla autorizzazioni e attivazione dopo le attese, riconosce
+un tentativo già committato prima del controllo di revisione e salva ricevuta,
 dati, variazioni del residuo ed eventi nella stessa transazione. La ricevuta ha
 `request_id`, `resource_id`, `revision`; il client rilegge le proiezioni correnti.
 Un replay restituisce la ricevuta precedente soltanto dopo i controlli correnti
@@ -190,8 +195,9 @@ Gli errori riusano `ErrorResponse` e `details: [{field, message}]`:
 | 500 `INTERNAL_ERROR` | Errore di persistenza/overflow; nessun dettaglio SQL nel payload. |
 
 Limite giornaliero, controlli sulle date future, assegnazione, delega e transizioni
-di stato non sono implementati da vincoli locali alla singola riga. Sono obblighi
-espliciti della transazione T-02 e delle rispettive storie, non garanzie di T-01.
+di stato non sono vincoli locali alla singola riga. Sono implementati nei percorsi
+transazionali interni T-02; la sola persistenza T-01 non li garantisce. Le storie
+successive devono usare questi percorsi nell'esposizione API/UI.
 
 ## 4. Eventi e archivio v2
 
@@ -253,8 +259,10 @@ Contratto per le storie successive, da applicare prima di esporre scritture o ar
 | Condivisione pubblica | Nessun dato o evento Efforts, nessuna credenziale Efforts derivata dal link. |
 
 La tabella descrive i controlli da integrare in US-18/19 e nel lifecycle: T-01 non
-modifica le autorizzazioni delle scritture generiche esistenti. Finché non sono
-implementati quei controlli, le scritture Efforts restano non registrate.
+modifica le autorizzazioni delle scritture generiche esistenti. T-02 integra
+adesso gli scope read/write sui cambi di stato, bulk e rifiuto triage, prima degli
+effetti e indipendentemente dai dati presenti. Le nuove route di scrittura Efforts
+restano non registrate finché US-18/19 non coprono gli altri canali.
 
 ## 6. Verifica T-01
 
@@ -271,5 +279,7 @@ Verificato il 2026-10-17:
   relativo a `shortcutDefs` catturato al valore iniziale.
 - Nessuna migrazione applicata al database di sviluppo durante questa verifica.
 
-Restano fuori da questa verifica le garanzie delle scritture T-02 e il round-trip
-degli archivi Efforts US-24/25. I soli vincoli di riga non le sostituiscono.
+Questa sezione registra la verifica T-01. Le garanzie delle scritture T-02 sono
+verificate separatamente in [efforts-transactions.md](efforts-transactions.md).
+Il round-trip degli archivi Efforts resta in US-24/25; i soli vincoli di riga non
+lo sostituiscono.

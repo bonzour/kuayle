@@ -120,19 +120,19 @@ type EffortActor struct {
 }
 
 type EffortPlanningSnapshot struct {
-	EstimateMinutes  *int64 `json:"estimate_minutes"`
-	RemainingMinutes *int64 `json:"remaining_minutes"`
+	EstimateMinutes  *int64 `json:"estimate_minutes" db:"estimate_minutes"`
+	RemainingMinutes *int64 `json:"remaining_minutes" db:"remaining_minutes"`
 }
 
 type EffortWorklogSnapshot struct {
-	ID              uuid.UUID  `json:"id"`
-	OwnerUserID     uuid.UUID  `json:"owner_user_id"`
-	CreatedByUserID uuid.UUID  `json:"created_by_user_id"`
-	WorkDate        EffortDate `json:"work_date"`
-	DurationMinutes int64      `json:"duration_minutes"`
-	Description     *string    `json:"description"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID              uuid.UUID  `json:"id" db:"id"`
+	OwnerUserID     uuid.UUID  `json:"owner_user_id" db:"owner_user_id"`
+	CreatedByUserID uuid.UUID  `json:"created_by_user_id" db:"created_by_user_id"`
+	WorkDate        EffortDate `json:"work_date" db:"work_date"`
+	DurationMinutes int64      `json:"duration_minutes" db:"duration_minutes"`
+	Description     *string    `json:"description" db:"description"`
+	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // Exactly one projection is populated, as selected by event_type.

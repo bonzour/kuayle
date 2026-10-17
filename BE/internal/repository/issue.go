@@ -11,6 +11,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/lib/pq"
 )
 
 type IssueRepository struct {
@@ -320,6 +321,31 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 }
 
 func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error {
+	legacy := string(issue.Status)
+	tx, current, err := beginEffortIssueWrite(ctx, r.db, issue.WorkspaceID, []uuid.UUID{issue.ID}, issue.StatusID, &legacy)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if len(current) != 1 {
+		return sql.ErrNoRows
+	}
+	// Legacy-only transitions must update the actual team status too. Otherwise
+	// lifecycle triggers and Efforts would still see the previous category.
+	sameStatusID := current[0].StatusID == nil && issue.StatusID == nil || current[0].StatusID != nil && issue.StatusID != nil && *current[0].StatusID == *issue.StatusID
+	if current[0].Status != issue.Status && sameStatusID {
+		var id uuid.UUID
+		if err := tx.GetContext(ctx, &id, `SELECT id FROM team_statuses WHERE team_id=$1 AND slug=$2`, issue.TeamID, legacy); err != nil {
+			return err
+		}
+		issue.StatusID = &id
+	}
+	statusChanged := !sameStatus(&current[0], issue)
+	if statusChanged {
+		if err := domain.CheckEffortToken(ctx); err != nil {
+			return err
+		}
+	}
 	query := `
 		UPDATE issues SET
 			title = $1, description = $2, status = $3, priority = $4,
@@ -328,12 +354,27 @@ func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error
 			status_id = $12, updated_at = NOW()
 		WHERE id = $13 AND ` + teamVisible(ctx, "issues.team_id") + " AND " + issueReferencesVisible(ctx, issue) + `
 		RETURNING updated_at`
-	return r.db.QueryRowContext(ctx, query,
+	err = tx.QueryRowContext(ctx, query,
 		issue.Title, issue.Description, issue.Status, issue.Priority,
 		issue.AssigneeID, issue.ProjectID, issue.CycleID, issue.ParentID,
 		issue.DueDate, issue.SortOrder, issue.Triaged,
 		issue.StatusID, issue.ID,
 	).Scan(&issue.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	if statusChanged {
+		if err = closeEffortTx(ctx, tx, issue, "closure"); err != nil {
+			return fmt.Errorf("%w: %w", ErrEffortPersistence, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		if statusChanged {
+			return fmt.Errorf("%w: %w", ErrEffortPersistence, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *IssueRepository) Delete(ctx context.Context, id uuid.UUID) error {
@@ -474,11 +515,35 @@ func (r *IssueRepository) CycleIsActive(ctx context.Context, cycleID uuid.UUID) 
 }
 
 func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, error) {
+	if len(issueIDs) == 0 {
+		return 0, nil
+	}
+	if status != nil || statusID != nil {
+		if err := domain.CheckEffortToken(ctx); err != nil {
+			return 0, err
+		}
+	}
+	tx, current, err := beginEffortIssueWrite(ctx, r.db, workspaceID, issueIDs, statusID, status)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
 	setClauses := []string{"updated_at = NOW()"}
 	args := []interface{}{workspaceID}
 	argIdx := 2
 
 	if status != nil {
+		if statusID == nil {
+			var unavailable bool
+			if err := tx.GetContext(ctx, &unavailable, `SELECT EXISTS(SELECT 1 FROM issues i WHERE i.workspace_id=$1 AND i.id=ANY($2)
+			 AND `+teamVisible(ctx, "i.team_id")+` AND NOT EXISTS(SELECT 1 FROM team_statuses s WHERE s.team_id=i.team_id AND s.slug=$3))`, workspaceID, pq.Array(issueIDs), *status); err != nil {
+				return 0, err
+			}
+			if unavailable {
+				return 0, effortError("VALIDATION_ERROR", "status", "status is not available for the issue team")
+			}
+			setClauses = append(setClauses, fmt.Sprintf("status_id = (SELECT s.id FROM team_statuses s WHERE s.team_id=issues.team_id AND s.slug=$%d)", argIdx))
+		}
 		setClauses = append(setClauses, fmt.Sprintf("status = $%d", argIdx))
 		args = append(args, *status)
 		argIdx++
@@ -526,11 +591,32 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 		strings.Join(idPlaceholders, ", "),
 	)
 
-	result, err := r.db.ExecContext(ctx, query, args...)
+	result, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err
 	}
+	if status != nil || statusID != nil {
+		for _, old := range current {
+			var saved domain.Issue
+			if err := tx.GetContext(ctx, &saved, `SELECT * FROM issues WHERE id=$1 AND `+teamVisible(ctx, "issues.team_id"), old.ID); err == sql.ErrNoRows {
+				continue
+			} else if err != nil {
+				return 0, err
+			}
+			if !sameStatus(&old, &saved) {
+				if err := closeEffortTx(ctx, tx, &saved, "closure"); err != nil {
+					return 0, fmt.Errorf("%w: %w", ErrEffortPersistence, err)
+				}
+			}
+		}
+	}
 	n, _ := result.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		if status != nil || statusID != nil {
+			return 0, fmt.Errorf("%w: %w", ErrEffortPersistence, err)
+		}
+		return 0, err
+	}
 	return int(n), nil
 }
 
@@ -559,6 +645,9 @@ func (r *IssueRepository) SetAssignees(ctx context.Context, issueID uuid.UUID, u
 		return err
 	}
 	defer tx.Rollback()
+	if err := lockEffortAssignmentIssue(ctx, tx, issueID); err != nil {
+		return err
+	}
 	if err := requireVisible(ctx, tx, issueVisible(ctx, uuidSQL(issueID))); err != nil {
 		return err
 	}

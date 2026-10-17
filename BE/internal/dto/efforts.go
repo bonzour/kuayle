@@ -18,7 +18,7 @@ const (
 	EffortDisabled         = "EFFORT_DISABLED"
 )
 
-// These are contracts for future commands, not registered HTTP mutations.
+// Internal command contracts; HTTP mutations remain unregistered.
 type EffortMutationRequest struct {
 	RequestID        string `json:"request_id" validate:"required,uuid"`
 	ExpectedRevision *int64 `json:"expected_revision" validate:"required,min=0,max=9007199254740991"`

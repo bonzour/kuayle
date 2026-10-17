@@ -1,7 +1,7 @@
 # Efforts — Epic e User Story per il backlog
 
 Data: 2026-10-16. Base: `918cc47`, branch `feature/efforts`.
-Stato: **T-01 completato il 2026-10-17**; tutti gli altri elementi sono
+Stato: **T-01 e T-02 completati il 2026-10-17**; tutti gli altri elementi sono
 **Proposti — da raffinare e stimare**.
 
 Fonte: [requisiti Efforts](../requirements/efforts.md).
@@ -60,6 +60,11 @@ dei controlli previsti da T-02 e US-18/19.
 **Dipendenze:** nessuna. **Supporta:** tutte le Epic.
 
 ### T-02 — Confine transazionale, lock e autorizzazione al salvataggio
+
+**Stato:** completato il 2026-10-17 secondo il perimetro concordato.
+Implementazione e verifiche: [efforts-transactions.md](../requirements/efforts-transactions.md).
+Comandi interni, chiusure normali/GitHub e relativi scope PAT integrati;
+nessuna nuova route di scrittura Efforts. Gli altri canali restano in US-18/19.
 
 **Scopo:** fornire alle operazioni Efforts le garanzie richieste da EFF-040,
 senza riscrivere l'architettura del tracker.

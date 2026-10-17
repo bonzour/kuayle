@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -311,6 +312,13 @@ func (h *IssueHandler) Update(c echo.Context) error {
 
 	issue, err := h.issueSvc.Update(c.Request().Context(), ws.ID, userID, identifier, req)
 	if err != nil {
+		if errors.Is(err, repository.ErrEffortPersistence) {
+			log.WithError(err).Error("Efforts lifecycle write failed")
+			return response.InternalError(c)
+		}
+		if errors.Is(err, domain.ErrEffortForbidden) {
+			return response.Forbidden(c)
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
@@ -380,6 +388,13 @@ func (h *IssueHandler) BulkUpdate(c echo.Context) error {
 
 	updated, err := h.issueSvc.BulkUpdate(c.Request().Context(), ws.ID, userID, req)
 	if err != nil {
+		if errors.Is(err, repository.ErrEffortPersistence) {
+			log.WithError(err).Error("Efforts lifecycle write failed")
+			return response.InternalError(c)
+		}
+		if errors.Is(err, domain.ErrEffortForbidden) {
+			return response.Forbidden(c)
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
@@ -723,6 +738,13 @@ func (h *IssueHandler) TriageDecline(c echo.Context) error {
 
 	issue, err := h.issueSvc.Triage(c.Request().Context(), ws.ID, userID, identifier, false)
 	if err != nil {
+		if errors.Is(err, repository.ErrEffortPersistence) {
+			log.WithError(err).Error("Efforts lifecycle write failed")
+			return response.InternalError(c)
+		}
+		if errors.Is(err, domain.ErrEffortForbidden) {
+			return response.Forbidden(c)
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 	return response.Success(c, http.StatusOK, toIssueResponse(*issue))

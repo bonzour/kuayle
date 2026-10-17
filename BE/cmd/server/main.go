@@ -88,7 +88,7 @@ func main() {
 	notifSvc := service.NewNotificationService(notifRepo)
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub, notifSvc, projectRepo)
 	labelSvc := service.NewLabelService(labelRepo)
-	effortSvc := service.NewEffortService(effortRepo)
+	effortSvc := service.NewEffortService(effortRepo, hub)
 	commentSvc := service.NewCommentService(commentRepo, issueRepo, hub, notifSvc)
 	projectSvc := service.NewProjectService(projectRepo)
 	relationSvc := service.NewIssueRelationService(relationRepo, issueRepo)
