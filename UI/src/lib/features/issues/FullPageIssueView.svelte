@@ -51,6 +51,7 @@
 	import { getIssueCopyPrompt } from '$lib/api/ai-settings';
 	import HistoryAssignees from './HistoryAssignees.svelte';
 	import EffortPlanning from './EffortPlanning.svelte';
+	import EffortWorklogs from './EffortWorklogs.svelte';
 	import IssueMachineActions from '$lib/features/dev-machines/IssueMachineActions.svelte';
 	import IssueMachinePickerDialog, { type IssueMachineIntent } from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
 	import CreateMachineDialog from '$lib/features/dev-machines/CreateMachineDialog.svelte';
@@ -1112,6 +1113,8 @@
 						{/if}
 					{/if}
 				</div>
+
+				<EffortWorklogs {issue} {slug} />
 
 				<!-- Comments -->
 				<div class="mt-4 space-y-3">

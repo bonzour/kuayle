@@ -7,8 +7,9 @@ Base: contratti [T-01](efforts-contracts.md); attività [T-02](../backlog/effort
 
 Il repository espone comandi interni tipizzati `SetEstimate`, `SetRemaining`,
 `CreateWorklog`, `UpdateWorklog`, `DeleteWorklog` e `SetSettings`. Il service
-restituisce le ricevute T-01 e pubblica il refresh dopo il commit. Non sono
-registrate nuove route HTTP di scrittura Efforts, né funzioni client di mutazione.
+restituisce le ricevute T-01 e pubblica il refresh dopo il commit. T-02 non
+registrava route HTTP né funzioni client di mutazione; EP-01–03 le espongono ora
+alle sessioni interattive, riusando questi stessi comandi e garanzie.
 
 Le chiusure esistenti sono già integrate: update singolo, bulk, triage,
 automazioni parent/figli e GitHub. Stato issue, trigger lifecycle, eventuale
@@ -19,8 +20,8 @@ per update/triage il suo evento di stato è ora registrato dopo il salvataggio,
 così una chiusura fallita non lascia un falso evento di stato.
 
 US-18/19 devono ancora completare l'integrazione dei canali indiretti prima di
-esporre le nuove scritture. Restano successive la proiezione degli eventi
-nell'attività, l'integrazione delle viste, il refresh UI specifico e gli archivi.
+esporre le scritture tramite PAT. Restano successive la proiezione degli eventi
+nell'attività, gli aggregati UI, il completamento generale del refresh e gli archivi.
 Non è necessaria una nuova migrazione: T-02 usa le cinque tabelle della 47.
 
 ## Ordine dei lock

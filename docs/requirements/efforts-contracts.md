@@ -8,7 +8,9 @@ Aggiornamento T-02 del 2026-10-17: i comandi interni, i lock e le chiusure sono
 implementati e verificati in [efforts-transactions.md](efforts-transactions.md).
 Aggiornamento EP-01: la configurazione è esposta tramite `PUT /efforts/settings`,
 riservata alle sessioni owner/admin. Aggiornamento EP-02 del 2026-10-19: stima e
-residuo sono esposti alle sessioni autorizzate; i comandi worklog restano interni.
+residuo sono esposti alle sessioni autorizzate. Aggiornamento EP-03 del
+2026-10-19: i worklog sono esposti alle sessioni, con selezione server dei titolari
+e registro operativo nelle due viste.
 
 Questo documento distingue i contratti implementati dalle scritture future.
 T-01 introduce migrazione 47, modelli e API di lettura; non completa T-02,
@@ -69,7 +71,7 @@ Disabilitare Efforts non blocca queste letture.
 | --- | --- |
 | `GET /efforts/settings` | `{"enabled":true,"timezone":"Europe/Rome","revision":0,"today":"2026-10-17"}` |
 | `GET /issues/:identifier/efforts` | Valori propri e aggregati autorizzati. |
-| `GET /issues/:identifier/efforts/worklogs?page=1&per_page=50` | `ListResponse<EffortWorklog>` comune. |
+| `GET /issues/:identifier/efforts/worklogs?page=1&per_page=50` | Involucro `ListResponse<EffortWorklog>` con `revision` dell’issue. |
 
 `today` è una proiezione, non un'impostazione persistita: PostgreSQL la calcola
 nello stesso statement usando il fuso del workspace e l'istante corrente.
@@ -107,6 +109,7 @@ Esempio di pagina:
 
 ```json
 {
+  "revision": 7,
   "data": [{
     "id": "10000000-0000-0000-0000-000000000001",
     "issue_id": "20000000-0000-0000-0000-000000000001",
@@ -133,7 +136,8 @@ un utente rimosso dal workspace ma con account esistente resta identificabile.
 Non si espongono email nelle attribuzioni. Pagine da 50 fisse; `page` predefinita 1,
 positiva e compatibile con il limite numerico; `per_page`, se fornito, deve essere
 50. Ordine `work_date DESC, created_at DESC, id DESC`. Conteggio e righe sono letti
-nello stesso statement. Una pagina oltre l'ultima restituisce `data: []` con il
+nello stesso statement, insieme alla revisione Efforts dell’issue (zero senza
+stato persistito). Una pagina oltre l'ultima restituisce `data: []` con il
 conteggio effettivo. Una risorsa non accessibile restituisce lo stesso 404 di una
 inesistente. L'ordinamento è stabile sullo stato letto; pagine successive possono
 cambiare durante modifiche concorrenti e il client dovrà ricaricarle con US-23.
@@ -141,8 +145,8 @@ cambiare durante modifiche concorrenti e il client dovrà ricaricarle con US-23.
 ## 3. Contratti di scrittura e comandi interni
 
 Sono definiti DTO Go/TypeScript e comandi transazionali T-02. EP-01 espone la
-configurazione ed EP-02 la pianificazione tramite sessione. I comandi worklog
-restano interni; il supporto PAT per le scritture dirette resta a US-19:
+configurazione, EP-02 la pianificazione ed EP-03 i worklog tramite sessione.
+Il supporto PAT per le scritture dirette resta a US-19:
 
 | Comando | Campi oltre all'involucro comune |
 | --- | --- |
@@ -232,8 +236,57 @@ rifiuto dei permessi (403). Il caricamento del ruolo non implica un rifiuto.
 Retry incerti conservano payload e chiave. Conflitti
 richiedono il riallineamento esplicito. Letture tardive non possono sovrascrivere
 una lettura più recente o i dati di un'altra issue/workspace/persona.
-Lo storico è persistito; la sua visualizzazione resta a US-21. Aggregati e registro
-worklog restano alle storie EP-05. Non sono necessarie nuove migrazioni.
+Lo storico è persistito; la sua visualizzazione resta a US-21. Gli aggregati
+restano alle storie EP-05; EP-03 anticipa il registro operativo di US-16.
+Non sono necessarie nuove migrazioni.
+
+### Registrazioni EP-03
+
+Prefisso: `/api/workspaces/:slug/issues/:identifier/efforts`. Tutte le nuove
+route sono riservate alle sessioni; anche un PAT con tutti gli scope è rifiutato.
+
+| Metodo e route | Richiesta / risposta |
+| --- | --- |
+| `POST /worklogs` | `CreateEffortWorklogRequest` → 200 `EffortMutationReceipt`. |
+| `PUT /worklogs/:worklogId` | `UpdateEffortWorklogRequest` → 200 `EffortMutationReceipt`. |
+| `DELETE /worklogs/:worklogId` | Involucro comune nel corpo → 200 `EffortMutationReceipt`. |
+| `GET /worklog-owners` | Solo owner/admin con accesso: array `EffortUser[]`, senza email. |
+
+La selezione ammette soltanto owner/admin/member attuali con accesso all’issue,
+applicando i predicati privacy esistenti. Il comando ricontrolla l’ammissibilità
+dopo le attese. Titolare e operatore iniziale sono immutabili; gli admin possono
+correggere/eliminare lavoro storico di persone rimosse o diventate guest.
+I membri registrano lavoro proprio anche senza assegnazione o stima e su issue
+chiuse. Modifica ed eliminazione richiedono titolarità oppure ruolo owner/admin.
+
+Durata 1–1.440 minuti, data di calendario non futura nel fuso workspace,
+descrizione nullable multilinea fino a 2.000 caratteri Unicode. JSON malformato,
+campi ignoti/immutabili e valori invalidi restituiscono 400; il limite giornaliero
+usa 400 `EFFORT_DAILY_LIMIT` senza dettagli o conteggi. Restano i conflitti 409
+e i controlli transazionali/idempotenti comuni. I replay dopo eliminazione sono
+riconosciuti senza richiedere preventivamente l’esistenza del worklog.
+
+Pagina e pannello condividono il registro dopo l’attività, con pagine da 50,
+data, titolare, durata, descrizione e «inserito da» nelle deleghe. L’intestazione
+è richiudibile e le righe riprendono lo stile compatto della timeline ACTIVITY.
+Si mostrano inizialmente tre registrazioni, con comando per espandere le
+precedenti nella pagina corrente e tornare alla vista ridotta. I dialoghi di
+inserimento/modifica e conferma eliminazione conservano le bozze sugli errori;
+solo owner/admin scelgono altri titolari in creazione. All’apertura si rilegge
+`today` dal server. Le date non attraversano conversioni UTC/browser; i testi
+sono resi come testo semplice e non vengono troncati.
+
+Ogni dialogo conserva la revisione della pagina da cui nasce: refresh remoti
+non riallineano una bozza. Il riallineamento esplicito sostituisce la bozza con
+i dati correnti e usa una nuova chiave al salvataggio. I retry incerti conservano
+chiave e payload, anche se nel frattempo Efforts viene disabilitato: il server
+riconosce un replay oppure rifiuta un tentativo non committato. Dopo successo
+si ricaricano la prima pagina e il riepilogo tramite il refresh generico esistente.
+Risposte tardive e callback di componenti distrutti non popolano altre viste.
+
+EP-03 non introduce migrazioni, aggregati UI, visualizzazione degli eventi,
+timesheet o notifiche dedicate. US-16 è anticipata nelle parti operative;
+US-19/21/23 e il completamento generale di EP-05 restano separati.
 
 ### Comandi sulle issue e garanzie comuni
 
@@ -254,7 +307,7 @@ Una revisione Efforts per issue copre pianificazione e qualsiasi mutazione dei
 worklog, anche della sola descrizione; ogni comando completato la incrementa una
 volta. La configurazione ha una revisione separata. L'assenza iniziale equivale a
 revisione 0; le righe di stato verranno create nella transazione del primo comando.
-Campi immutabili/ignoti delle scritture devono essere rifiutati dai futuri handler.
+Campi immutabili/ignoti delle scritture sono rifiutati dagli handler.
 
 Idempotenza: chiave `(workspace, operatore, request_id)` senza TTL. SHA-256 del
 JSON canonico della richiesta normalizzata, contenente nome operazione, destinazione,
@@ -352,7 +405,8 @@ La tabella descrive i controlli da integrare in US-18/19 e nel lifecycle: T-01 n
 modifica le autorizzazioni delle scritture generiche esistenti. T-02 integra
 adesso gli scope read/write sui cambi di stato, bulk e rifiuto triage, prima degli
 effetti e indipendentemente dai dati presenti. Le nuove route di scrittura Efforts
-restano non registrate finché US-18/19 non coprono gli altri canali.
+sono ora registrate da EP-01–03 soltanto per sessioni interattive; l’esposizione
+PAT resta subordinata ai controlli US-18/19 sugli altri canali.
 
 ## 6. Verifica T-01
 

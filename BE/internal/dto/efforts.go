@@ -14,6 +14,12 @@ type EffortSettingsResponse struct {
 type EffortSummaryResponse = domain.EffortSummary
 type EffortWorklogResponse = domain.EffortWorklog
 
+// Revision and rows describe the same statement snapshot.
+type EffortWorklogListResponse struct {
+	ListResponse[domain.EffortWorklog]
+	Revision int64 `json:"revision"`
+}
+
 const (
 	EffortRevisionConflict = "EFFORT_REVISION_CONFLICT"
 	EffortRequestConflict  = "EFFORT_REQUEST_CONFLICT"
@@ -21,7 +27,7 @@ const (
 	EffortDisabled         = "EFFORT_DISABLED"
 )
 
-// Planning and configuration use session-only routes; worklogs remain internal.
+// Direct Efforts writes use session-only routes.
 type EffortMutationRequest struct {
 	RequestID        string `json:"request_id" validate:"required,uuid"`
 	ExpectedRevision *int64 `json:"expected_revision" validate:"required,min=0,max=9007199254740991"`

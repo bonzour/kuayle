@@ -151,7 +151,7 @@ type IssueHistoryRepo interface {
 	ListByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.IssueHistory, error)
 }
 
-// Planning and settings are exposed to sessions; worklog commands remain internal.
+// Direct Efforts writes are exposed to sessions.
 type EffortRepo interface {
 	SetEstimate(context.Context, uuid.UUID, uuid.UUID, dto.SetEffortEstimateRequest) (*EffortMutationResult, error)
 	SetRemaining(context.Context, uuid.UUID, uuid.UUID, dto.SetEffortRemainingRequest) (*EffortMutationResult, error)
@@ -161,7 +161,8 @@ type EffortRepo interface {
 	SetSettings(context.Context, uuid.UUID, dto.SetEffortSettingsRequest) (*EffortMutationResult, error)
 	Settings(ctx context.Context, workspaceID uuid.UUID) (*dto.EffortSettingsResponse, error)
 	Summary(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.EffortSummary, error)
-	Worklogs(ctx context.Context, workspaceID uuid.UUID, identifier string, page int) (*dto.ListResponse[domain.EffortWorklog], error)
+	Worklogs(ctx context.Context, workspaceID uuid.UUID, identifier string, page int) (*dto.EffortWorklogListResponse, error)
+	WorklogOwners(ctx context.Context, workspaceID uuid.UUID, identifier string) ([]domain.EffortUser, error)
 }
 
 type ViewRepo interface {

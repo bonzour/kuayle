@@ -132,7 +132,8 @@ func TestEffortSettingsPostgres(t *testing.T) {
 		require.Equal(t, f.owner, actor)
 		logsAfter, err := f.repo.Worklogs(f.ctx, f.ws, "T02-"+id.String()[:8], 1)
 		require.NoError(t, err)
-		require.Equal(t, logs, logsAfter)
+		require.Equal(t, logs.ListResponse, logsAfter.ListResponse)
+		require.Greater(t, logsAfter.Revision, logs.Revision)
 	})
 
 	t.Run("calendar boundaries follow the configured IANA daylight saving rules", func(t *testing.T) {

@@ -31,8 +31,12 @@ func (s *EffortService) Summary(ctx context.Context, workspaceID uuid.UUID, iden
 	return s.repo.Summary(ctx, workspaceID, identifier)
 }
 
-func (s *EffortService) Worklogs(ctx context.Context, workspaceID uuid.UUID, identifier string, page int) (*dto.ListResponse[domain.EffortWorklog], error) {
+func (s *EffortService) Worklogs(ctx context.Context, workspaceID uuid.UUID, identifier string, page int) (*dto.EffortWorklogListResponse, error) {
 	return s.repo.Worklogs(ctx, workspaceID, identifier, page)
+}
+
+func (s *EffortService) WorklogOwners(ctx context.Context, workspaceID uuid.UUID, identifier string) ([]domain.EffortUser, error) {
+	return s.repo.WorklogOwners(ctx, workspaceID, identifier)
 }
 
 // Replays return the previous receipt without publishing another mutation.

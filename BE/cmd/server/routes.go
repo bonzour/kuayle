@@ -192,6 +192,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPut, "/issues/:identifier/efforts/estimate", h.effort.SetEstimate)
 	sessionOnly(ws, http.MethodPut, "/issues/:identifier/efforts/remaining", h.effort.SetRemaining)
 	scoped(ws, http.MethodGet, "/issues/:identifier/efforts/worklogs", h.effort.Worklogs, "efforts:read")
+	sessionOnly(ws, http.MethodPost, "/issues/:identifier/efforts/worklogs", h.effort.CreateWorklog)
+	sessionOnly(ws, http.MethodPut, "/issues/:identifier/efforts/worklogs/:worklogId", h.effort.UpdateWorklog)
+	sessionOnly(ws, http.MethodDelete, "/issues/:identifier/efforts/worklogs/:worklogId", h.effort.DeleteWorklog)
+	sessionOnly(ws, http.MethodGet, "/issues/:identifier/efforts/worklog-owners", h.effort.WorklogOwners)
 	scoped(ws, http.MethodPost, "/issues/:identifier/triage/accept", h.issue.TriageAccept, "issue:update")
 	scoped(ws, http.MethodPost, "/issues/:identifier/triage/decline", h.issue.TriageDecline, "issue:update")
 

@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
@@ -120,6 +122,73 @@ func (h *EffortHandler) Worklogs(c echo.Context) error {
 	return effortResponse(c, result, err)
 }
 
+func (h *EffortHandler) WorklogOwners(c echo.Context) error {
+	if domain.IsToken(c.Request().Context()) || c.Get(middleware.TokenScopesKey) != nil {
+		return response.Forbidden(c)
+	}
+	ws := c.Get("workspace").(*domain.Workspace)
+	result, err := h.svc.WorklogOwners(c.Request().Context(), ws.ID, c.Param("identifier"))
+	return effortResponse(c, result, err)
+}
+
+func (h *EffortHandler) CreateWorklog(c echo.Context) error { return h.worklogCommand(c, "create") }
+func (h *EffortHandler) UpdateWorklog(c echo.Context) error { return h.worklogCommand(c, "update") }
+func (h *EffortHandler) DeleteWorklog(c echo.Context) error { return h.worklogCommand(c, "delete") }
+
+func (h *EffortHandler) worklogCommand(c echo.Context, operation string) error {
+	if domain.IsToken(c.Request().Context()) || c.Get(middleware.TokenScopesKey) != nil {
+		return response.Forbidden(c)
+	}
+	var create dto.CreateEffortWorklogRequest
+	var update dto.UpdateEffortWorklogRequest
+	var remove dto.DeleteEffortWorklogRequest
+	var req any = &create
+	if operation == "update" {
+		req = &update
+	}
+	if operation == "delete" {
+		req = &remove
+	}
+	if err := decodeEffortCommand(c, req); err != nil {
+		field := "body"
+		var typeError *json.UnmarshalTypeError
+		if errors.As(err, &typeError) && typeError.Field != "" {
+			field = typeError.Field
+		}
+		if strings.Contains(err.Error(), "work_date") {
+			field = "work_date"
+		}
+		return response.ValidationError(c, []dto.ErrorDetail{{Field: field, Message: "invalid Efforts JSON"}})
+	}
+	var worklog uuid.UUID
+	if operation != "create" {
+		var err error
+		worklog, err = uuid.Parse(c.Param("worklogId"))
+		if err != nil || worklog == uuid.Nil {
+			return response.ValidationError(c, []dto.ErrorDetail{{Field: "worklog_id", Message: "invalid worklog UUID"}})
+		}
+	}
+	ws := c.Get("workspace").(*domain.Workspace)
+	ctx := c.Request().Context()
+	issue, err := h.issues.GetByIdentifier(ctx, ws.ID, c.Param("identifier"))
+	if err != nil {
+		return effortResponse(c, nil, err)
+	}
+	if issue == nil {
+		return response.NotFound(c, "Efforts")
+	}
+	var result *dto.EffortMutationReceipt
+	switch operation {
+	case "create":
+		result, err = h.svc.CreateWorklog(ctx, ws.ID, issue.ID, create)
+	case "update":
+		result, err = h.svc.UpdateWorklog(ctx, ws.ID, issue.ID, worklog, update)
+	case "delete":
+		result, err = h.svc.DeleteWorklog(ctx, ws.ID, issue.ID, worklog, remove)
+	}
+	return effortResponse(c, result, err)
+}
+
 func effortResponse(c echo.Context, result any, err error) error {
 	if errors.Is(err, domain.ErrEffortForbidden) {
 		return response.Forbidden(c)
@@ -129,6 +198,9 @@ func effortResponse(c echo.Context, result any, err error) error {
 	}
 	var commandError *repository.EffortError
 	if errors.As(err, &commandError) {
+		if commandError.Code == dto.EffortDailyLimit {
+			return response.Error(c, http.StatusBadRequest, commandError.Code, commandError.Message)
+		}
 		if commandError.Code == "VALIDATION_ERROR" {
 			return response.ValidationError(c, []dto.ErrorDetail{{Field: commandError.Field, Message: commandError.Message}})
 		}

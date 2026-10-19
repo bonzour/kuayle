@@ -20,6 +20,7 @@
 	import { mentionInteractivity } from '$lib/components/shared/mention/mention-interactivity.action';
 	import HistoryAssignees from './HistoryAssignees.svelte';
 	import EffortPlanning from './EffortPlanning.svelte';
+	import EffortWorklogs from './EffortWorklogs.svelte';
 
 	let {
 		issue,
@@ -324,6 +325,8 @@
 					{/if}
 				</div>
 			{/if}
+
+			<EffortWorklogs {issue} {slug} />
 		</div>
 	</div>
 	</Sheet.Content>

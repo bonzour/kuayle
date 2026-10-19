@@ -136,8 +136,8 @@ func TestEffortsT02HTTPAndRealtime(t *testing.T) {
 	}
 	for _, route := range e.Routes() {
 		if strings.Contains(route.Path, "/efforts") && route.Method != http.MethodGet {
-			require.Equal(t, http.MethodPut, route.Method)
-			require.Contains(t, []string{"/api/workspaces/:slug/efforts/settings", "/api/workspaces/:slug/issues/:identifier/efforts/estimate", "/api/workspaces/:slug/issues/:identifier/efforts/remaining"}, route.Path)
+			require.Contains(t, []string{http.MethodPost, http.MethodPut, http.MethodDelete}, route.Method)
+			require.Equal(t, "session", route.Name)
 		}
 	}
 

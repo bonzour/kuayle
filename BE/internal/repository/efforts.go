@@ -85,10 +85,11 @@ func (r *EffortRepository) Summary(ctx context.Context, workspaceID uuid.UUID, i
 	return &summary, nil
 }
 
-func (r *EffortRepository) Worklogs(ctx context.Context, workspaceID uuid.UUID, identifier string, page int) (*dto.ListResponse[domain.EffortWorklog], error) {
+func (r *EffortRepository) Worklogs(ctx context.Context, workspaceID uuid.UUID, identifier string, page int) (*dto.EffortWorklogListResponse, error) {
 	// The root, count and page share one statement snapshot. The lateral LEFT
 	// JOIN retains an authorized empty issue/page, distinct from a missing issue.
 	type row struct {
+		Revision            int64         `db:"revision"`
 		TotalCount          int           `db:"total_count"`
 		ID                  *uuid.UUID    `db:"id"`
 		IssueID             uuid.UUID     `db:"issue_id"`
@@ -111,10 +112,11 @@ func (r *EffortRepository) Worklogs(ctx context.Context, workspaceID uuid.UUID, 
 	}
 	rows := []row{}
 	err := r.db.SelectContext(ctx, &rows, `WITH root AS MATERIALIZED (
- SELECT i.id,(SELECT COUNT(*) FROM effort_worklogs w WHERE w.workspace_id=$1 AND w.issue_id=i.id) AS total_count
- FROM issues i WHERE i.workspace_id=$1 AND i.identifier_text=$2
+ SELECT i.id,COALESCE(e.revision,0) AS revision,(SELECT COUNT(*) FROM effort_worklogs w WHERE w.workspace_id=$1 AND w.issue_id=i.id) AS total_count
+ FROM issues i LEFT JOIN issue_efforts e ON e.workspace_id=i.workspace_id AND e.issue_id=i.id
+ WHERE i.workspace_id=$1 AND i.identifier_text=$2
  AND `+effortWorkspaceVisible(ctx, "i.workspace_id")+` AND `+teamVisible(ctx, "i.team_id")+`
- ) SELECT r.id AS issue_id,r.total_count,
+ ) SELECT r.id AS issue_id,r.total_count,r.revision,
  w.id,w.owner_user_id AS owner_id,owner.name AS owner_name,owner.display_name AS owner_display_name,
  (owner.id IS NOT NULL) AS owner_available,
  w.created_by_user_id AS operator_id,operator.name AS operator_name,operator.display_name AS operator_display_name,
@@ -131,7 +133,7 @@ func (r *EffortRepository) Worklogs(ctx context.Context, workspaceID uuid.UUID, 
 	if len(rows) == 0 {
 		return nil, sql.ErrNoRows
 	}
-	result := &dto.ListResponse[domain.EffortWorklog]{Data: []domain.EffortWorklog{}, TotalCount: rows[0].TotalCount, Page: page, PerPage: domain.EffortPageSize}
+	result := &dto.EffortWorklogListResponse{ListResponse: dto.ListResponse[domain.EffortWorklog]{Data: []domain.EffortWorklog{}, TotalCount: rows[0].TotalCount, Page: page, PerPage: domain.EffortPageSize}, Revision: rows[0].Revision}
 	for _, w := range rows {
 		if w.ID == nil {
 			continue
@@ -146,4 +148,43 @@ func (r *EffortRepository) Worklogs(ctx context.Context, workspaceID uuid.UUID, 
 	}
 	result.HasMore = int64(page)*domain.EffortPageSize < int64(result.TotalCount)
 	return result, nil
+}
+
+func (r *EffortRepository) WorklogOwners(ctx context.Context, workspaceID uuid.UUID, identifier string) ([]domain.EffortUser, error) {
+	access, ok := domain.AccessFromContext(ctx)
+	if !ok || access.UserID == uuid.Nil || domain.IsToken(ctx) {
+		return nil, domain.ErrEffortForbidden
+	}
+	type row struct {
+		Role        string     `db:"role"`
+		ID          *uuid.UUID `db:"id"`
+		Name        *string    `db:"name"`
+		DisplayName *string    `db:"display_name"`
+	}
+	rows := []row{}
+	err := r.db.SelectContext(ctx, &rows, `WITH root AS MATERIALIZED (
+ SELECT i.team_id,m.role FROM issues i JOIN workspace_members m ON m.workspace_id=i.workspace_id AND m.user_id=$3
+ WHERE i.workspace_id=$1 AND i.identifier_text=$2
+ AND `+effortWorkspaceVisible(ctx, "i.workspace_id")+` AND `+teamVisible(ctx, "i.team_id")+`
+ ) SELECT r.role,u.id,u.name,u.display_name FROM root r LEFT JOIN LATERAL (
+ SELECT u.id,u.name,u.display_name FROM workspace_members m JOIN users u ON u.id=m.user_id
+ WHERE r.role IN ('owner','admin') AND m.workspace_id=$1 AND m.role IN ('owner','admin','member')
+ AND kuayle_team_access(r.team_id,m.user_id,$1)
+ ) u ON TRUE ORDER BY COALESCE(u.display_name,u.name),u.id`, workspaceID, identifier, access.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	if rows[0].Role != "owner" && rows[0].Role != "admin" {
+		return nil, domain.ErrEffortForbidden
+	}
+	users := []domain.EffortUser{}
+	for _, u := range rows {
+		if u.ID != nil {
+			users = append(users, domain.EffortUser{ID: *u.ID, Available: true, Name: u.Name, DisplayName: u.DisplayName})
+		}
+	}
+	return users, nil
 }

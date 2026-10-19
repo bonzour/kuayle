@@ -2,8 +2,9 @@
 
 Data: 2026-10-16. Base: `918cc47`, branch `feature/efforts`.
 Stato: **T-01, T-02 ed EP-01 (US-01–03) completati il 2026-10-17**;
-**EP-02 (US-04–05) completata il 2026-10-19**. Gli altri elementi sono
-**Proposti — da raffinare e stimare**.
+**EP-02 (US-04–05) ed EP-03 (US-06–10) completate il 2026-10-19**. Gli altri
+elementi restano **Proposti — da raffinare e stimare**, salvo parti anticipate
+esplicitamente indicate.
 
 Fonte: [requisiti Efforts](../requirements/efforts.md).
 Vincoli e codice verificato: [analisi architetturale](../requirements/efforts-analysis.md).
@@ -307,10 +308,48 @@ controllo UI e rappresentazione esplicita del valore impostato.
 
 ### EP-03 — Registrare e correggere il lavoro
 
+**Stato:** completata il 2026-10-19 nel perimetro concordato: US-06–10 con
+scritture riservate alle sessioni utente. Registro e dialoghi anticipano le parti
+operative di US-16; supporto PAT alle scritture, aggregati UI, visualizzazione
+dello storico e completamento generale del realtime restano alle rispettive
+storie. Le dipendenze di autorizzazione, storico e retry sono coperte per questi
+comandi, senza dichiarare completate US-18/19/21/22/23.
+Contratti: [registrazioni EP-03](../requirements/efforts-contracts.md#registrazioni-ep-03).
+
+**Realizzato:** POST/PUT/DELETE worklog sui comandi atomici T-02, selezione server
+dei titolari ammissibili per owner/admin e revisione restituita insieme alla
+pagina del registro. Limite giornaliero mappato a HTTP 400 senza informazioni
+sul lavoro nascosto. Titolare immutabile, correzione di lavoro storico, replay
+anche dopo eliminazione e nessun nuovo schema di persistenza.
+Pagina completa e pannello condividono registro dopo l’attività, pagine da
+50, inserimenti delegati e dialoghi accessibili con conferma di eliminazione.
+Data proposta riletta nel fuso workspace, durate intere e descrizioni Unicode
+multilinea senza troncamenti. Bozze e payload dei retry sono conservati; i refresh
+non sostituiscono la revisione di un dialogo aperto. I conflitti richiedono
+riallineamento esplicito; dopo successo registro e riepilogo si aggiornano.
+Traduzioni nelle quattro lingue.
+
+**Aggiornamento UI:** WORK LOG è sotto ACTIVITY e riprende la timeline compatta,
+con righe a testo piccolo, durata in evidenza e azioni discrete. Intestazione
+richiudibile da tastiera, tre registrazioni iniziali e comando per espandere le
+precedenti nella pagina corrente; la paginazione da 50 resta disponibile.
+Posizione, espansione da tastiera e resa mobile/chiaro/scuro verificate nelle
+due viste.
+
+**Verifiche:** suite Efforts Go di domain/DTO/repository/service/handler/server
+e migrazioni con PostgreSQL e `-race`, senza skip Efforts. Inclusi rollback di
+modifica/eliminazione, revoche concorrenti dei titolari/operatori, soglie del
+budget e spostamenti tra giorni, privacy e rifiuto PAT. Passano 40 unit test UI,
+17 E2E dedicati a EP-03 e la selezione complessiva di 49 E2E con EP-01/02,
+navigazione e team privati. Controllo Svelte senza errori (resta l’avviso
+preesistente sulle scorciatoie) e build di produzione verificata.
+
 **Risultato:** membri e amministratori registrano contributi manuali affidabili,
 con attribuzione corretta e limiti coerenti. **Storie:** US-06–10.
 
 #### US-06 — Registrare lavoro proprio
+
+**Stato:** completata nell’ambito EP-03, con il perimetro di canale e storico sopra indicato.
 
 **Storia:** come membro non guest con accesso all'issue, voglio registrare il mio
 lavoro manualmente, per aggiornare consuntivo e residuo anche senza assegnazione.
@@ -339,6 +378,8 @@ parser durata e validazioni, gestione tentativo/errore e refresh dopo successo.
 
 #### US-07 — Modificare un worklog senza ricalcolare il residuo
 
+**Stato:** completata nell’ambito EP-03, con il perimetro di canale e storico sopra indicato.
+
 **Storia:** come titolare non guest o owner/admin, voglio correggere data, durata
 e descrizione di un worklog, per rettificare il consuntivo mantenendo la previsione.
 
@@ -361,6 +402,8 @@ prima/dopo; riuso form con titolare non editabile e messaggi contestuali.
 
 #### US-08 — Eliminare un worklog conservando la traccia
 
+**Stato:** completata nell’ambito EP-03, con il perimetro di canale e storico sopra indicato.
+
 **Storia:** come titolare non guest o owner/admin, voglio eliminare una
 registrazione errata, per correggere il consuntivo mantenendo lo storico.
 
@@ -381,6 +424,8 @@ registrazione errata, per correggere il consuntivo mantenendo lo storico.
 dialogo di conferma condiviso e riallineamento registro/riepilogo.
 
 #### US-09 — Registrare per conto di un'altra persona
+
+**Stato:** completata nell’ambito EP-03, con il perimetro di canale e storico sopra indicato.
 
 **Storia:** come owner/admin, voglio inserire lavoro svolto da un'altra persona
 ammissibile, per riportare il consuntivo distinguendo titolare e operatore.
@@ -404,6 +449,8 @@ ammissibile, per riportare il consuntivo distinguendo titolare e operatore.
 selettore nel form e indicazione «inserito da» nel registro.
 
 #### US-10 — Rispettare il limite giornaliero tra tutte le issue
+
+**Stato:** completata nell’ambito EP-03, con il perimetro di canale e storico sopra indicato.
 
 **Storia:** come persona a cui è attribuito lavoro, voglio che il totale per
 giorno non superi 24 ore nel workspace, per evitare consuntivi impossibili.
@@ -550,6 +597,10 @@ residuo nel riepilogo laterale, per valutare rapidamente l'avanzamento.
 collegamento comandi US-04/05, traduzioni/cataloghi e gestione aggiornamenti.
 
 #### US-16 — Registro paginato e moduli accessibili
+
+**Stato:** parti operative anticipate da EP-03: registro paginato, attribuzioni,
+dialoghi CRUD, tastiera, errori contestuali e integrazione nelle due viste. La
+storia nel suo complesso resta separata, incluse le dipendenze da US-15.
 
 **Storia:** come utente con accesso all'issue, voglio consultare le registrazioni
 nel corpo e usare azioni accessibili, per ricostruire e gestire il lavoro svolto.

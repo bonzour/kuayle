@@ -1,3 +1,5 @@
+import type { PaginatedResponse } from './common';
+
 /** Calendar date in YYYY-MM-DD form; never pass through Date/toISOString. */
 export type EffortDate = string;
 
@@ -47,7 +49,11 @@ export interface EffortWorklog {
 	updated_at: string;
 }
 
-// Planning and configuration writes are session-only; worklogs remain internal.
+export interface EffortWorklogPage extends PaginatedResponse<EffortWorklog> {
+	revision: number;
+}
+
+// Direct Efforts writes are session-only.
 export interface EffortMutationRequest {
 	request_id: string;
 	expected_revision: number;
