@@ -9,7 +9,7 @@ import (
 )
 
 const WorkspaceExportFormat = "kuayle.workspace"
-const WorkspaceExportVersion = 1
+const WorkspaceExportVersion = 2
 
 type WorkspaceExportManifest struct {
 	Format                  string         `json:"format"`
@@ -28,9 +28,10 @@ type WorkspaceExportManifest struct {
 type WorkspaceTransferRow map[string]any
 
 type WorkspaceTransferData struct {
-	Workspace WorkspaceTransferRow              `json:"workspace"`
-	Users     []WorkspaceTransferRow            `json:"users"`
-	Tables    map[string][]WorkspaceTransferRow `json:"tables"`
+	UnavailableUsers []WorkspaceTransferRow            `json:"unavailable_users,omitempty"`
+	Workspace        WorkspaceTransferRow              `json:"workspace"`
+	Users            []WorkspaceTransferRow            `json:"users"`
+	Tables           map[string][]WorkspaceTransferRow `json:"tables"`
 }
 
 type WorkspaceImportPreview struct {

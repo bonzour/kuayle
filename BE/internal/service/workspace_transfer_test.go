@@ -281,6 +281,31 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	_, err = db.ExecContext(ctx, `INSERT INTO assets(id,workspace_id,storage_key,filename,content_type,size,uploaded_by,team_id) VALUES($1,$2,$3,'portable.txt','text/plain',$4,$5,$6)`, assetID, workspaceID, assetKey, len(assetBody), userID, teamID)
 	require.NoError(t, err)
 
+	ctx = domain.WithAccess(ctx, domain.Access{UserID: userID, WorkspaceID: workspaceID})
+	historicalUser := uuid.New()
+	_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Historical','hash')`, historicalUser, historicalUser.String()+"@example.test")
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'member')`, workspaceID, historicalUser)
+	require.NoError(t, err)
+	efforts := repository.NewEffortRepository(db)
+	envelope := func(rev int64) dto.EffortMutationRequest {
+		return dto.EffortMutationRequest{RequestID: uuid.NewString(), ExpectedRevision: &rev}
+	}
+	estimate := int64(480)
+	_, err = efforts.SetEstimate(ctx, workspaceID, issueID, dto.SetEffortEstimateRequest{EffortMutationRequest: envelope(0), EstimateMinutes: dto.OptionalEffortMinutes{Set: true, Value: &estimate}})
+	require.NoError(t, err)
+	literalUUID := issueID.String()
+	_, err = efforts.CreateWorklog(ctx, workspaceID, issueID, dto.CreateEffortWorklogRequest{EffortMutationRequest: envelope(1), OwnerUserID: historicalUser.String(), WorkDate: "2020-01-01", DurationMinutes: 120, Description: &literalUUID})
+	require.NoError(t, err)
+	deleted, err := efforts.CreateWorklog(ctx, workspaceID, issueID, dto.CreateEffortWorklogRequest{EffortMutationRequest: envelope(2), OwnerUserID: historicalUser.String(), WorkDate: "2020-01-01", DurationMinutes: 30, Description: &literalUUID})
+	require.NoError(t, err)
+	_, err = efforts.DeleteWorklog(ctx, workspaceID, issueID, uuid.MustParse(deleted.Receipt.ResourceID), dto.DeleteEffortWorklogRequest{EffortMutationRequest: envelope(3)})
+	require.NoError(t, err)
+	_, err = db.Exec(`DELETE FROM users WHERE id=$1`, historicalUser)
+	require.NoError(t, err)
+	disabled := false
+	_, err = efforts.SetSettings(ctx, workspaceID, dto.SetEffortSettingsRequest{EffortMutationRequest: envelope(0), Enabled: &disabled, Timezone: "Pacific/Kiritimati"})
+	require.NoError(t, err)
 	transferRepo := repository.NewWorkspaceTransferRepository(db)
 	transferService := NewWorkspaceTransferService(transferRepo, backend)
 	// The export lock and all archive reads must share one connection.
@@ -313,6 +338,31 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 
 	var targetWorkspaceID uuid.UUID
 	require.NoError(t, db.Get(&targetWorkspaceID, `SELECT id FROM workspaces WHERE slug=$1`, targetSlug))
+	var importedSettings domain.EffortSettings
+	require.NoError(t, db.Get(&importedSettings, `SELECT enabled,timezone,revision FROM workspace_effort_settings WHERE workspace_id=$1`, targetWorkspaceID))
+	require.False(t, importedSettings.Enabled)
+	require.Equal(t, "Pacific/Kiritimati", importedSettings.Timezone)
+	var importedOwner uuid.UUID
+	var importedText string
+	var importedDuration int
+	require.NoError(t, db.QueryRow(`SELECT owner_user_id,description,duration_minutes FROM effort_worklogs WHERE workspace_id=$1`, targetWorkspaceID).Scan(&importedOwner, &importedText, &importedDuration))
+	require.NotEqual(t, historicalUser, importedOwner)
+	require.Equal(t, literalUUID, importedText)
+	require.Equal(t, 120, importedDuration)
+	var historicalMembers int
+	require.NoError(t, db.Get(&historicalMembers, `SELECT count(*) FROM workspace_members WHERE user_id=$1`, importedOwner))
+	require.Zero(t, historicalMembers)
+	var snapshotOwner, snapshotDescription, snapshotWorklog string
+	require.NoError(t, db.QueryRow(`SELECT before_snapshot->'worklog'->>'owner_user_id',before_snapshot->'worklog'->>'description',before_snapshot->'worklog'->>'id' FROM effort_events WHERE workspace_id=$1 AND event_type='worklog_deleted'`, targetWorkspaceID).Scan(&snapshotOwner, &snapshotDescription, &snapshotWorklog))
+	require.Equal(t, importedOwner.String(), snapshotOwner)
+	require.Equal(t, literalUUID, snapshotDescription)
+	require.NotEqual(t, deleted.Receipt.ResourceID, snapshotWorklog)
+	var remaining int
+	require.NoError(t, db.Get(&remaining, `SELECT remaining_minutes FROM issue_efforts e JOIN issues i ON i.id=e.issue_id WHERE e.workspace_id=$1 AND i.number=1`, targetWorkspaceID))
+	require.Equal(t, 330, remaining)
+	var operations int
+	require.NoError(t, db.Get(&operations, `SELECT count(*) FROM effort_operations WHERE workspace_id=$1`, targetWorkspaceID))
+	require.Zero(t, operations)
 	var importedDescription string
 	require.NoError(t, db.Get(&importedDescription, `SELECT description FROM issues WHERE workspace_id=$1 AND identifier_text='ENG-1'`, targetWorkspaceID))
 	require.Contains(t, importedDescription, "/api/workspaces/"+targetSlug+"/assets/")
@@ -454,6 +504,46 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.Zero(t, rollbackCount)
 	require.Equal(t, filesBefore, regularFileCount(t, storageDir), "staged asset must be removed after transaction rollback")
 
+	for _, invalid := range []string{"daily", "duration", "snapshot", "membership"} {
+		invalidPath := mutateWorkspaceArchive(t, archive.Path, func(manifest *dto.WorkspaceExportManifest, data *dto.WorkspaceTransferData) {
+			switch invalid {
+			case "daily":
+				row := cloneTransferRow(data.Tables["effort_worklogs"][0])
+				row["id"] = uuid.NewString()
+				row["duration_minutes"] = 1440
+				data.Tables["effort_worklogs"] = append(data.Tables["effort_worklogs"], row)
+				manifest.Counts["effort_worklogs"]++
+			case "duration":
+				data.Tables["effort_worklogs"][0]["duration_minutes"] = json.Number("1.5")
+			case "snapshot":
+				data.Tables["effort_events"][0]["snapshot_version"] = 2
+			case "membership":
+				data.Tables["workspace_members"][0]["user_id"] = historicalUser.String()
+			}
+		})
+		_, err = transferService.Preview(ctx, invalidPath, userID)
+		require.ErrorIs(t, err, ErrInvalidWorkspaceArchive, invalid)
+	}
+	legacyPath := mutateWorkspaceArchive(t, archive.Path, func(manifest *dto.WorkspaceExportManifest, data *dto.WorkspaceTransferData) {
+		manifest.Version = 1
+		data.UnavailableUsers = nil
+		delete(manifest.Counts, "unavailable_users")
+		for table := range data.Tables {
+			if isEffortTransferTable(table) {
+				delete(data.Tables, table)
+				delete(manifest.Counts, table)
+			}
+		}
+	})
+	legacySlug := "legacy-" + uuid.NewString()[:8]
+	legacy, err := transferService.Import(ctx, legacyPath, "Legacy", legacySlug, userID)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE slug=$1`, legacySlug) })
+	legacyID := uuid.MustParse(legacy.ID)
+	legacySettings, err := efforts.Settings(domain.WithAccess(context.Background(), domain.Access{UserID: userID, WorkspaceID: legacyID}), legacyID)
+	require.NoError(t, err)
+	require.True(t, legacySettings.Enabled)
+	require.Equal(t, "Europe/Rome", legacySettings.Timezone)
 	missingSlug := "transfer-missing-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
 	missingEmail := "missing-" + uuid.New().String() + "@example.test"
 	missingArchive := mutateWorkspaceArchive(t, archive.Path, func(manifest *dto.WorkspaceExportManifest, data *dto.WorkspaceTransferData) {

@@ -88,9 +88,11 @@ type EffortTotals struct {
 }
 
 type EffortSummary struct {
-	Revision int64        `json:"revision" db:"revision"`
-	Own      EffortValues `json:"own" db:"own"`
-	Total    EffortTotals `json:"total" db:"total"`
+	HasData               bool         `json:"has_data" db:"has_data"`
+	HasVisibleDescendants bool         `json:"has_visible_descendants" db:"has_visible_descendants"`
+	Revision              int64        `json:"revision" db:"revision"`
+	Own                   EffortValues `json:"own" db:"own"`
+	Total                 EffortTotals `json:"total" db:"total"`
 }
 
 // A missing account is an unavailable attribution, not the current operator.
@@ -142,6 +144,7 @@ type EffortSnapshot struct {
 }
 
 type EffortEvent struct {
+	Users           []EffortUser    `json:"users"`
 	ID              uuid.UUID       `json:"id"`
 	IssueID         uuid.UUID       `json:"issue_id"`
 	EventType       string          `json:"event_type"`

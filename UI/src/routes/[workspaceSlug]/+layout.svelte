@@ -489,6 +489,7 @@
 					issuesState.load(slug, issuesState.filters, false);
 				}
 				window.dispatchEvent(new CustomEvent('ws:issue-updated', { detail: msg.payload }));
+				window.dispatchEvent(new CustomEvent('app:refresh', { detail: { slug, resources: ['issues'] } }));
 				break;
 			}
 			case 'issue.deleted': {
@@ -496,6 +497,7 @@
 					issuesState.load(slug, issuesState.filters, false);
 				}
 				window.dispatchEvent(new CustomEvent('ws:issue-deleted', { detail: msg.payload }));
+				window.dispatchEvent(new CustomEvent('app:refresh', { detail: { slug, resources: ['issues'] } }));
 				break;
 			}
 			case 'comment.created': {

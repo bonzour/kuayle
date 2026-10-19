@@ -32,6 +32,7 @@
 		: ['done', 'completed', 'cancelled'].includes(currentIssue?.status ?? ''));
 	const assigned = $derived(!!authState.user?.id && (currentIssue?.assignee_id === authState.user.id || !!currentIssue?.assignees?.some(user => user.id === authState.user?.id)));
 	const hasPermission = $derived(!!membership && (['owner', 'admin'].includes(membership.workspace.current_user_role) || membership.workspace.current_user_role === 'member' && assigned));
+	const hidden = $derived(settings?.enabled === false && summary?.has_data === false);
 	const canEdit = $derived(!loading && !failed && !forbidden && !!settings?.enabled && hasPermission);
 
 	async function reload(): Promise<EffortSummary | null> {
@@ -103,6 +104,7 @@
 	});
 </script>
 
+{#if !hidden}
 <section class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]" aria-labelledby={headingId}>
 	<button id={headingId} type="button" onclick={() => expanded = !expanded}
 		aria-expanded={expanded} aria-controls={`${headingId}-content`}
@@ -124,6 +126,21 @@
 				</div>
 				<EffortPlanningField kind="remaining" {slug} identifier={issue.identifier} {summary} canEdit={canEdit && !terminal} {reload} />
 			{/key}
+			{#if summary.has_visible_descendants}
+				<div class="mt-2 border-t border-[var(--app-border)] pt-2" aria-label={m['efforts.totals.title']()}>
+					<p class="px-2 py-1.5 text-[11px] text-[var(--color-text-tertiary)]">{m['efforts.totals.title']()}</p>
+					{#each [
+						{ label: m['efforts.planning.estimate'](), value: summary.total.estimate_minutes, partial: summary.total.estimate_partial },
+						{ label: m['efforts.planning.spent'](), value: summary.total.spent_minutes, partial: false },
+						{ label: m['efforts.planning.remaining'](), value: summary.total.remaining_minutes, partial: summary.total.remaining_partial }
+					] as total}
+						<div class="flex items-center gap-3 rounded-md px-2 py-1.5">
+							<span class="w-20 shrink-0 text-xs text-[var(--color-text-tertiary)]">{total.label}</span>
+							<output aria-label={total.label} class="text-sm text-[var(--color-text-primary)]">{total.value === null ? m['efforts.planning.unestimated']() : formatEffortMinutes(total.value)}{#if total.partial && total.value !== null}<span class="ml-1 text-[11px] text-[var(--color-text-tertiary)]">({m['efforts.totals.partial']()})</span>{/if}</output>
+						</div>
+					{/each}
+				</div>
+			{/if}
 			{#if !settings?.enabled}<p class="px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]">{settings ? m['efforts.planning.disabled']() : m['settings.efforts.load_error']()}</p>
 			{:else if membership && !hasPermission && !loading && !failed}<p class="px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]">{m['efforts.planning.readonly']()}</p>{/if}
 			{#if terminal}<p class="px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]">{m['efforts.planning.closed']()}</p>{/if}
@@ -132,3 +149,4 @@
 		{/if}
 	</div>
 </section>
+{/if}

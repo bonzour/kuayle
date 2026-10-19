@@ -1,10 +1,13 @@
 # Efforts — Epic e User Story per il backlog
 
 Data: 2026-10-16. Base: `918cc47`, branch `feature/efforts`.
-Stato: **T-01, T-02 ed EP-01 (US-01–03) completati il 2026-10-17**;
-**EP-02 (US-04–05) ed EP-03 (US-06–10) completate il 2026-10-19**. Gli altri
-elementi restano **Proposti — da raffinare e stimare**, salvo parti anticipate
-esplicitamente indicate.
+Stato aggiornato al **2026-10-20: V1 completata**, EP-01–08 (US-01–25) e T-01–03.
+EP-01–03 erano già complete nei rispettivi perimetri; questo passaggio completa
+lifecycle, consultazione/aggregati, canali PAT, storico/realtime e portabilità.
+Risultati e tracciabilità AC: [accettazione integrata](../requirements/efforts-acceptance.md).
+Uso e nota di rilascio: [efforts-usage.md](../requirements/efforts-usage.md).
+Le note datate precedenti registrano il perimetro della singola consegna; i rinvii
+a storie successive sono ora risolti dal completamento V1 descritto sotto.
 
 Fonte: [requisiti Efforts](../requirements/efforts.md).
 Vincoli e codice verificato: [analisi architetturale](../requirements/efforts-analysis.md).
@@ -32,7 +35,8 @@ in modo attendibile dalla sola lettura del repository.
 
 **Stato:** completato il 2026-10-17 secondo il perimetro concordato.
 Contratti e confini: [efforts-contracts.md](../requirements/efforts-contracts.md).
-Migrazione 47, letture API e scope verificati; le scritture restano non esposte.
+Migrazione 47, letture API e scope verificati. Le scritture sono state esposte
+con EP-01–03 e completate per PAT con US-19.
 
 **Scopo:** permettere alle storie di usare un modello coerente con i livelli Go,
 SQL/PostgreSQL, DTO e frontend già presenti.
@@ -66,7 +70,8 @@ dei controlli previsti da T-02 e US-18/19.
 **Stato:** completato il 2026-10-17 secondo il perimetro concordato.
 Implementazione e verifiche: [efforts-transactions.md](../requirements/efforts-transactions.md).
 Comandi interni, chiusure normali/GitHub e relativi scope PAT integrati;
-nessuna nuova route di scrittura Efforts. Gli altri canali restano in US-18/19.
+nessuna nuova route di scrittura Efforts nella consegna T-02. Gli altri canali
+sono ora coperti da US-18/19 e dal lifecycle V1.
 
 **Scopo:** fornire alle operazioni Efforts le garanzie richieste da EFF-040,
 senza riscrivere l'architettura del tracker.
@@ -94,6 +99,13 @@ percorsi coperti. Nessun affidamento a mutex del singolo processo.
 **Dipendenze:** T-01. **Supporta:** tutte le scritture e US-21–23.
 
 ### T-03 — Accettazione integrata e preparazione del rilascio
+
+**Stato:** completata il 2026-10-20. Suite Go completa con PostgreSQL e `-race`:
+1.015 test/subtest passati, 6 skip preesistenti estranei a Efforts; nessuno skip
+Efforts. Passano 40 unit test UI, controllo Svelte (0 errori, 1 warning
+preesistente), build e 57 E2E. Misurate gerarchia da 3.001 issue, 3.000 worklog e
+riattivazione da 1.500 issue; risultati, limiti e mappa AC-001–051 in
+[efforts-acceptance.md](../requirements/efforts-acceptance.md).
 
 **Scopo:** verificare il risultato completo, oltre alle prove svolte dentro ogni
 storia. **Dipendenze:** US-01–US-25 completate per la chiusura dell'attività.
@@ -475,10 +487,19 @@ test con connessioni reali, delega simultanea e spostamento tra giorni.
 
 ### EP-04 — Coerenza con il ciclo di vita delle issue
 
+**Stato:** completata il 2026-10-20 (US-11–14). Chiusure normali/bulk/triage,
+automazioni parent/figli e GitHub riusano T-02. La duplicazione copia soltanto la
+pianificazione nella transazione di creazione, con controlli dopo le attese;
+eliminazioni singole/bulk ricontrollano ruolo/creatore e avvisano della perdita
+di worklog e storico. Spostamenti, conversione e figli conservati mantengono i
+dati. Verificati API, PostgreSQL, PAT, stato disabilitato e totali degli antenati.
+
 **Risultato:** le azioni già disponibili sulle issue conservano le regole Efforts.
 **Storie:** US-11–14.
 
 #### US-11 — Chiudere, annullare e riaprire con residui coerenti
+
+**Stato:** completata il 2026-10-20 nell’ambito EP-04.
 
 **Storia:** come utente del tracker, voglio che le transizioni di stato gestiscano
 il residuo in modo uniforme, per avere previsioni coerenti con lo stato reale.
@@ -506,6 +527,8 @@ operatore di sistema; test diretti e automatici, senza ampliare le automazioni.
 
 #### US-12 — Duplicare soltanto la pianificazione prevista
 
+**Stato:** completata il 2026-10-20 nell’ambito EP-04.
+
 **Storia:** come utente autorizzato a duplicare una issue, voglio ritrovare la
 stima nella copia senza copiarne il lavoro, per iniziare un'attività distinta.
 
@@ -526,6 +549,8 @@ stima nella copia senza copiarne il lavoro, per iniziare un'attività distinta.
 stima, controlli API su effetti Efforts e test con/senza figli e stima.
 
 #### US-13 — Conservare dati in spostamenti, gerarchie e conversione
+
+**Stato:** completata il 2026-10-20 nell’ambito EP-04.
 
 **Storia:** come utente che organizza le issue, voglio conservare gli effort
 quando cambio progetto o gerarchia, per non perdere il lavoro già registrato.
@@ -550,6 +575,8 @@ antenati interessati e invalidare le letture tramite US-23; test conservazione.
 
 #### US-14 — Eliminare una issue con avviso e conservare i figli rimasti
 
+**Stato:** completata il 2026-10-20 nell’ambito EP-04.
+
 **Storia:** come utente autorizzato a eliminare issue, voglio conoscere l'effetto
 sui dati Efforts, per confermare consapevolmente la cancellazione.
 
@@ -570,10 +597,18 @@ e bulk, refresh degli antenati e test di distinzione issue/membro/workspace.
 
 ### EP-05 — Consultare Efforts nel dettaglio issue
 
+**Stato:** completata il 2026-10-20 (US-15–17). Totali dei discendenti visibili
+separati dai valori propri, indicatori di parzialità e riepilogo vuoto nascosto
+da disabilitato; mantenuto WORK LOG sotto ACTIVITY, espandibile, con comando
+«precedenti» sopra i record. Verificate entrambe le viste, paginazione, tastiera,
+Unicode, sola lettura, privacy e gerarchie su più livelli.
+
 **Risultato:** gli utenti leggono dati propri, registro e totali visibili senza
 confonderli o poter modificare valori derivati. **Storie:** US-15–17.
 
 #### US-15 — Riepilogo laterale e stato di sola lettura
+
+**Stato:** completata il 2026-10-20 nell’ambito EP-05.
 
 **Storia:** come utente con accesso all'issue, voglio leggere stima, consuntivo e
 residuo nel riepilogo laterale, per valutare rapidamente l'avanzamento.
@@ -598,9 +633,8 @@ collegamento comandi US-04/05, traduzioni/cataloghi e gestione aggiornamenti.
 
 #### US-16 — Registro paginato e moduli accessibili
 
-**Stato:** parti operative anticipate da EP-03: registro paginato, attribuzioni,
-dialoghi CRUD, tastiera, errori contestuali e integrazione nelle due viste. La
-storia nel suo complesso resta separata, incluse le dipendenze da US-15.
+**Stato:** completata il 2026-10-20 nell’ambito EP-05. Registro/dialoghi già
+anticipati da EP-03; completate le dipendenze da riepilogo, storico e realtime.
 
 **Storia:** come utente con accesso all'issue, voglio consultare le registrazioni
 nel corpo e usare azioni accessibili, per ricostruire e gestire il lavoro svolto.
@@ -627,6 +661,8 @@ integrazione dei form, stati vuoto/errore/caricamento e prove oltre 50 righe.
 
 #### US-17 — Totali dei discendenti visibili a ogni profondità
 
+**Stato:** completata il 2026-10-20 nell’ambito EP-05.
+
 **Storia:** come utente che consulta una parent issue, voglio vedere i totali
 delle issue accessibili della gerarchia, per valutare il lavoro complessivo.
 
@@ -652,10 +688,19 @@ spostamenti e query plan; rendering nel riepilogo US-15.
 
 ### EP-06 — Autorizzazioni, identità e canali di accesso
 
+**Stato:** completata il 2026-10-20 (US-18–20). Pianificazione/worklog accettano
+PAT con read+write Efforts, entro ruolo e accesso correnti. Scope applicati anche
+a duplicazione, eliminazione ed export; storico filtrato senza read. Impostazioni
+e selettore titolari restano session-only. Dati pubblici privi di Efforts;
+attribuzioni storiche senza email e senza nuovi accessi per persone rimosse.
+Verifiche HTTP con PAT reali, revoche, team privati e account eliminati.
+
 **Risultato:** ogni persona e token opera nei limiti correnti, preservando dati
 storici e riservatezza. **Storie:** US-18–20.
 
 #### US-18 — Applicare ruoli, accesso e identità correnti
+
+**Stato:** completata il 2026-10-20 nell’ambito EP-06.
 
 **Storia:** come utente del workspace, voglio che accessi e attribuzioni siano
 rispettati anche dopo cambi di ruolo, per mantenere dati corretti e riservati.
@@ -683,6 +728,8 @@ UI coerenti e prove di revoca concorrente/UUID cross-workspace.
 
 #### US-19 — Usare le API con scope Efforts espliciti
 
+**Stato:** completata il 2026-10-20 nell’ambito EP-06.
+
 **Storia:** come utilizzatore delle API, voglio autorizzare esplicitamente un PAT
 per Efforts, per automatizzare le operazioni entro i permessi del proprietario.
 
@@ -707,6 +754,8 @@ documentare combinazioni necessarie per export e duplicazione in T-01.
 
 #### US-20 — Escludere Efforts dalle condivisioni pubbliche
 
+**Stato:** completata il 2026-10-20 nell’ambito EP-06.
+
 **Storia:** come membro del workspace, voglio condividere issue senza pubblicare
 i relativi effort, per mantenere riservati pianificazione e contributi personali.
 
@@ -727,10 +776,19 @@ eventuali arricchimenti e chiamate della UI pubblica; prove HTTP su payload real
 
 ### EP-07 — Storico, affidabilità e aggiornamenti tra sessioni
 
+**Stato:** completata il 2026-10-20 (US-21–23). Activity mostra eventi Efforts
+strutturati con prima/dopo, cause, deleghe e sistema; i passaggi non sono eliminati
+dal raggruppamento dello storico generico. Refresh e reconnect aggiornano anche
+attività e aggregati; identità/generazione proteggono da risposte tardive e revoche.
+Retry persistenti, conflitti e rollback restano nei comandi transazionali.
+Verificati due sessioni, bozze, perdita risposta e PostgreSQL con connessioni reali.
+
 **Risultato:** le operazioni sono ricostruibili e resistono a errori, retry e
 modifiche simultanee. **Storie:** US-21–23.
 
 #### US-21 — Storico completo nell'attività dell'issue
+
+**Stato:** completata il 2026-10-20 nell’ambito EP-07.
 
 **Storia:** come utente con accesso all'issue, voglio ricostruire le operazioni
 Efforts, per sapere chi ha cambiato i dati, quando e per quale causa.
@@ -756,6 +814,8 @@ compatibilità degli eventi preesistenti e predisporre rimappatura import.
 
 #### US-22 — Retry sicuri e conflitti espliciti
 
+**Stato:** completata il 2026-10-20 nell’ambito EP-07.
+
 **Storia:** come utente che salva dati Efforts, voglio poter ritentare dopo un
 errore di rete e riconoscere conflitti, per non duplicare né perdere lavoro.
 
@@ -779,6 +839,8 @@ test multi-connessione e perdita della risposta dopo commit.
 
 #### US-23 — Aggiornare le altre sessioni autorizzate
 
+**Stato:** completata il 2026-10-20 nell’ambito EP-07.
+
 **Storia:** come utente che consulta una issue, voglio vedere le modifiche Efforts
 delle altre sessioni, per prendere decisioni su dati aggiornati.
 
@@ -800,10 +862,20 @@ quando consentite, listener condivisi e teardown, test con due sessioni e privac
 
 ### EP-08 — Portabilità del workspace
 
+**Stato:** completata il 2026-10-20 (US-24–25). Export v2 con snapshot coerente
+su una connessione e barriera privacy acquisita prima della lettura. Import
+atomico v1/v2, rimappatura tipizzata anche per worklog eliminati e account non
+disponibili, validazione di durate/snapshot/attribuzioni/budget prima e dopo la
+rimappatura. Conservati date, null/zero, disattivazione e testo letterale; ricevute
+escluse. Verificati round-trip PostgreSQL, export concorrente, archivi invalidi,
+legacy e blocchi del trasferimento privato. Nessuna nuova migrazione.
+
 **Risultato:** esportare e ripristinare un workspace conserva Efforts e
 attribuzioni, entro i limiti di trasferimento già presenti. **Storie:** US-24–25.
 
 #### US-24 — Includere Efforts nell'export workspace
+
+**Stato:** completata il 2026-10-20 nell’ambito EP-08.
 
 **Storia:** come owner/admin autorizzato al trasferimento, voglio esportare anche
 Efforts, per conservare pianificazione, lavoro e storico insieme al workspace.
@@ -827,6 +899,8 @@ definire lettura coerente riusando il trasferimento e la barriera privacy,
 verificando che questa da sola non sostituisca uno snapshot dei dati.
 
 #### US-25 — Importare Efforts e supportare archivi precedenti
+
+**Stato:** completata il 2026-10-20 nell’ambito EP-08.
 
 **Storia:** come utente autorizzato a importare un workspace, voglio ripristinare
 Efforts con attribuzioni e regole corrette, per proseguire senza perdere lo storico.

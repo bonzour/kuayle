@@ -378,7 +378,17 @@ func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error
 }
 
 func (r *IssueRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM issues WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), id)
+	if err := domain.CheckEffortToken(ctx); err != nil {
+		return err
+	}
+	var ws uuid.UUID
+	if err := r.db.GetContext(ctx, &ws, `SELECT workspace_id FROM issues WHERE id=$1 AND `+teamVisible(ctx, "issues.team_id"), id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	_, err := r.BulkDelete(ctx, ws, []uuid.UUID{id})
 	return err
 }
 
@@ -621,21 +631,43 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 }
 
 func (r *IssueRepository) BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error) {
+	if err := domain.CheckEffortToken(ctx); err != nil {
+		return 0, err
+	}
 	if len(issueIDs) == 0 {
 		return 0, nil
 	}
-	args := []interface{}{workspaceID}
-	placeholders := make([]string, len(issueIDs))
-	for i, id := range issueIDs {
-		placeholders[i] = fmt.Sprintf("$%d", i+2)
-		args = append(args, id)
-	}
-	query := fmt.Sprintf(`DELETE FROM issues WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id"), strings.Join(placeholders, ", "))
-	result, err := r.db.ExecContext(ctx, query, args...)
+	tx, _, err := beginEffortIssueWrite(ctx, r.db, workspaceID, issueIDs, nil, nil)
 	if err != nil {
 		return 0, err
 	}
-	n, _ := result.RowsAffected()
+	defer tx.Rollback()
+	if access, ok := domain.AccessFromContext(ctx); ok {
+		role, err := effortRole(ctx, tx, workspaceID, access.UserID)
+		if err != nil {
+			return 0, err
+		}
+		if role != "owner" && role != "admin" {
+			var forbidden bool
+			if err := tx.GetContext(ctx, &forbidden, `SELECT EXISTS (SELECT 1 FROM issues WHERE workspace_id=$1 AND id=ANY($2) AND creator_id<>$3 AND `+teamVisible(ctx, "issues.team_id")+`)`, workspaceID, pq.Array(issueIDs), access.UserID); err != nil {
+				return 0, err
+			}
+			if forbidden {
+				return 0, domain.ErrEffortForbidden
+			}
+		}
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM issues WHERE workspace_id=$1 AND id=ANY($2) AND `+teamVisible(ctx, "issues.team_id"), workspaceID, pq.Array(issueIDs))
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
 	return int(n), nil
 }
 

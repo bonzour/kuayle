@@ -1,22 +1,16 @@
-# Efforts — contratti T-01
+# Efforts — contratti API e archivio V1
 
 Decisioni del 2026-10-17, branch `feature/efforts`, baseline precedente `918cc47`.
 Fonte funzionale: [requisiti confermati](efforts.md), EFF-001–041 e AC-001–051.
 Attività: [T-01](../backlog/efforts.md).
 
-Aggiornamento T-02 del 2026-10-17: i comandi interni, i lock e le chiusure sono
-implementati e verificati in [efforts-transactions.md](efforts-transactions.md).
-Aggiornamento EP-01: la configurazione è esposta tramite `PUT /efforts/settings`,
-riservata alle sessioni owner/admin. Aggiornamento EP-02 del 2026-10-19: stima e
-residuo sono esposti alle sessioni autorizzate. Aggiornamento EP-03 del
-2026-10-19: i worklog sono esposti alle sessioni, con selezione server dei titolari
-e registro operativo nelle due viste.
-
-Questo documento distingue i contratti implementati dalle scritture future.
-T-01 introduce migrazione 47, modelli e API di lettura; non completa T-02,
-le policy di scrittura US-18/19, l'attività US-21 o il trasferimento US-24/25.
-T-01 non espone endpoint Efforts di scrittura, né aggiunge Efforts ai DTO generici
-delle issue, ai DTO pubblici o ai template.
+Aggiornamento V1 del 2026-10-20: EP-01–08 implementate. Configurazione riservata
+alle sessioni owner/admin; pianificazione e worklog disponibili anche ai PAT con
+scope espliciti. Aggregati, attività, realtime e trasferimento v2 sono operativi.
+Le garanzie transazionali sono in [efforts-transactions.md](efforts-transactions.md),
+le prove in [efforts-acceptance.md](efforts-acceptance.md) e l'uso in
+[efforts-usage.md](efforts-usage.md). Nessun arricchimento dei DTO pubblici o dei
+template; i valori propri restano negli endpoint Efforts dedicati.
 
 ## 1. Persistenza
 
@@ -36,19 +30,19 @@ precisione JavaScript. Anche le revisioni rispettano questo limite.
 `work_date` è `DATE`, serializzato `YYYY-MM-DD`, da `0001-01-01` a `9999-12-31`.
 Nessuna conversione UTC o dipendenza dal fuso del browser. La durata è un intero
 fra 1 e 1.440 minuti. Descrizione nullable, testo semplice, massimo 2.000 caratteri
-Unicode, senza troncamento. I futuri form convertiranno `1h 30m` in 90; le API
-riceveranno minuti interi, non stringhe di durata o numeri frazionari.
+Unicode, senza troncamento. I form convertono `1h 30m` in 90; le API
+ricevono minuti interi, non stringhe di durata o numeri frazionari.
 
 Il fuso deve esistere in `pg_timezone_names`, essere un nome IANA con `/` oppure
 `UTC`, escludendo gli alberi `posix/` e `right/`. Non accetta offset numerici o
-abbreviazioni come `CET`. Il controllo applicativo sui salvataggi userà lo stesso
+abbreviazioni come `CET`. Il controllo applicativo sui salvataggi usa lo stesso
 nome per calcolare oggi; cambiare fuso non modifica le date persistite.
 
 ID, issue, workspace, titolare, operatore iniziale e inserimento di un worklog
 sono immutabili. L'operatore di una correzione compare nel nuovo evento.
 Gli UUID umani sono riferimenti storici intenzionalmente privi di FK a `users`
 o `workspace_members`: rimuovere l'account o la membership non cancella lavoro
-e non lo attribuisce ad altri. Le scritture future dovranno validare le identità
+e non lo attribuisce ad altri. Le scritture validano le identità
 prima di inserirle; conoscere un riferimento storico non concede accesso.
 
 La cancellazione dell'issue elimina valori, worklog ed eventi; i figli conservati
@@ -82,6 +76,8 @@ Issue senza dati:
 ```json
 {
   "revision": 0,
+  "has_data": false,
+  "has_visible_descendants": false,
   "own": {
     "estimate_minutes": null,
     "spent_minutes": 0,
@@ -104,6 +100,10 @@ non perde un eventuale discendente visibile dietro un nodo non accessibile.
 Le stime note sono sommate; se tutte assenti la stima totale è `null`.
 `estimate_partial` e `remaining_partial` indicano dati mancanti soltanto tra le
 issue visibili. Nessun numero o dettaglio delle issue escluse è restituito.
+`has_data` indica almeno un valore esplicito (anche zero) o lavoro registrato
+nei contributi visibili; `has_visible_descendants` indica almeno un discendente
+visibile. Entrambi sono letti nello stesso statement delle somme. Il riepilogo
+vuoto è nascosto quando Efforts è disabilitato; i dati esistenti restano visibili.
 
 Esempio di pagina:
 
@@ -131,7 +131,7 @@ Esempio di pagina:
 }
 ```
 
-`available=false` permette alla UI futura di mostrare «Utente non più disponibile»;
+`available=false` permette alla UI di mostrare «Utente non più disponibile»;
 un utente rimosso dal workspace ma con account esistente resta identificabile.
 Non si espongono email nelle attribuzioni. Pagine da 50 fisse; `page` predefinita 1,
 positiva e compatibile con il limite numerico; `per_page`, se fornito, deve essere
@@ -140,13 +140,14 @@ nello stesso statement, insieme alla revisione Efforts dell’issue (zero senza
 stato persistito). Una pagina oltre l'ultima restituisce `data: []` con il
 conteggio effettivo. Una risorsa non accessibile restituisce lo stesso 404 di una
 inesistente. L'ordinamento è stabile sullo stato letto; pagine successive possono
-cambiare durante modifiche concorrenti e il client dovrà ricaricarle con US-23.
+cambiare durante modifiche concorrenti: il client le ricarica al refresh/reconnect.
 
 ## 3. Contratti di scrittura e comandi interni
 
-Sono definiti DTO Go/TypeScript e comandi transazionali T-02. EP-01 espone la
-configurazione, EP-02 la pianificazione ed EP-03 i worklog tramite sessione.
-Il supporto PAT per le scritture dirette resta a US-19:
+DTO Go/TypeScript e comandi transazionali sono condivisi tra sessioni e PAT.
+Per pianificazione e worklog un PAT richiede `efforts:read` + `efforts:write`,
+oltre al ruolo/accesso corrente del proprietario. Configurazione e selettore
+dei titolari restano riservati alle sessioni owner/admin:
 
 | Comando | Campi oltre all'involucro comune |
 | --- | --- |
@@ -186,12 +187,12 @@ rollback e replay non pubblicano. Nei workspace privati resta il refresh generic
 Le Impostazioni generali mostrano la configurazione a tutti i membri autorizzati,
 con modifica limitata a owner/admin. Il client conserva bozza e payload del retry;
 un conflitto richiede la sostituzione esplicita della bozza con i valori correnti.
-Il valore `today` è disponibile ai futuri moduli worklog di US-06; EP-01 non li crea.
+Il dialogo worklog rilegge `today` dal server a ogni apertura.
 
 ### Pianificazione EP-02
 
-Le due route sono riservate alle sessioni utente; qualsiasi PAT è rifiutato,
-anche se possiede tutti gli scope Efforts. Prefisso comune:
+Le due route ammettono sessioni utente e PAT con entrambi gli scope Efforts.
+Prefisso comune:
 `/api/workspaces/:slug/issues/:identifier/efforts`.
 
 | Metodo e route | Campi oltre a `request_id` e `expected_revision` |
@@ -236,21 +237,21 @@ rifiuto dei permessi (403). Il caricamento del ruolo non implica un rifiuto.
 Retry incerti conservano payload e chiave. Conflitti
 richiedono il riallineamento esplicito. Letture tardive non possono sovrascrivere
 una lettura più recente o i dati di un'altra issue/workspace/persona.
-Lo storico è persistito; la sua visualizzazione resta a US-21. Gli aggregati
-restano alle storie EP-05; EP-03 anticipa il registro operativo di US-16.
-Non sono necessarie nuove migrazioni.
+Lo storico è visibile in Activity. I totali delle issue visibili sono separati
+dai valori propri e sempre in sola lettura. Non sono necessarie nuove migrazioni.
 
 ### Registrazioni EP-03
 
-Prefisso: `/api/workspaces/:slug/issues/:identifier/efforts`. Tutte le nuove
-route sono riservate alle sessioni; anche un PAT con tutti gli scope è rifiutato.
+Prefisso: `/api/workspaces/:slug/issues/:identifier/efforts`. Le mutazioni
+ammettono sessioni e PAT con read+write Efforts. Il solo selettore dei titolari
+è un supporto UI riservato alle sessioni owner/admin.
 
 | Metodo e route | Richiesta / risposta |
 | --- | --- |
 | `POST /worklogs` | `CreateEffortWorklogRequest` → 200 `EffortMutationReceipt`. |
 | `PUT /worklogs/:worklogId` | `UpdateEffortWorklogRequest` → 200 `EffortMutationReceipt`. |
 | `DELETE /worklogs/:worklogId` | Involucro comune nel corpo → 200 `EffortMutationReceipt`. |
-| `GET /worklog-owners` | Solo owner/admin con accesso: array `EffortUser[]`, senza email. |
+| `GET /worklog-owners` | Solo sessioni owner/admin con accesso: array `EffortUser[]`, senza email. |
 
 La selezione ammette soltanto owner/admin/member attuali con accesso all’issue,
 applicando i predicati privacy esistenti. Il comando ricontrolla l’ammissibilità
@@ -284,9 +285,9 @@ riconosce un replay oppure rifiuta un tentativo non committato. Dopo successo
 si ricaricano la prima pagina e il riepilogo tramite il refresh generico esistente.
 Risposte tardive e callback di componenti distrutti non popolano altre viste.
 
-EP-03 non introduce migrazioni, aggregati UI, visualizzazione degli eventi,
-timesheet o notifiche dedicate. US-16 è anticipata nelle parti operative;
-US-19/21/23 e il completamento generale di EP-05 restano separati.
+Il comando per mostrare le registrazioni precedenti è sopra le righe, come in
+Activity. Il completamento V1 include aggregati e storico nelle due superfici,
+con refresh remoto e riconnessione; non introduce timesheet o notifiche dedicate.
 
 ### Comandi sulle issue e garanzie comuni
 
@@ -306,7 +307,7 @@ Esempio di creazione:
 Una revisione Efforts per issue copre pianificazione e qualsiasi mutazione dei
 worklog, anche della sola descrizione; ogni comando completato la incrementa una
 volta. La configurazione ha una revisione separata. L'assenza iniziale equivale a
-revisione 0; le righe di stato verranno create nella transazione del primo comando.
+revisione 0; le righe di stato sono create nella transazione del primo comando.
 Campi immutabili/ignoti delle scritture sono rifiutati dagli handler.
 
 Idempotenza: chiave `(workspace, operatore, request_id)` senza TTL. SHA-256 del
@@ -339,8 +340,7 @@ Gli errori riusano `ErrorResponse` e `details: [{field, message}]`:
 
 Limite giornaliero, controlli sulle date future, assegnazione, delega e transizioni
 di stato non sono vincoli locali alla singola riga. Sono implementati nei percorsi
-transazionali interni T-02; la sola persistenza T-01 non li garantisce. Le storie
-successive devono usare questi percorsi nell'esposizione API/UI.
+transazionali interni T-02; la sola persistenza T-01 non li garantisce. Le API/UI usano questi percorsi condivisi.
 
 ## 4. Eventi e archivio v2
 
@@ -355,10 +355,19 @@ evento nella stessa transazione del comando causale.
 L'operatore è `{ "kind": "user", "user_id": "..." }` oppure
 `{ "kind": "system", "system_source": "github" }`. Le automazioni dichiarano
 l'origine reale, senza inventare account o usare `uuid.Nil`. L'operatore della
-riattivazione è l'admin che la richiede. US-21 proietterà questi eventi nella
+riattivazione è l'admin che la richiede. Questi eventi sono proiettati nella
 stessa attività dell'issue mantenendo compatibili gli eventi generici esistenti.
 
-Per US-24/25, il formato esteso sarà `kuayle.workspace`, versione **2**:
+`GET /issues/:identifier/history` mantiene l'involucro degli eventi generici e
+aggiunge gli eventi con `field: "efforts"` e `effort: EffortEvent`. Il campo
+`effort` comprende actor, cause, snapshot_version, before/after, revision e
+`users: EffortUser[]` per operatore, titolare e inseritore storici, senza email.
+Per gli eventi di sistema il `user_id` esterno è omesso. Gli eventi sono ordinati
+per istante decrescente e UUID a parità di istante; quelli Efforts non sono
+raggruppati eliminando passaggi intermedi. Senza `efforts:read` sono omessi;
+nessuna proiezione pubblica include Efforts.
+
+Il formato emesso è `kuayle.workspace`, versione **2**:
 
 - Configurazione e dati nelle quattro nuove tabelle di dominio, ordinate in import
   come settings, issue_efforts, worklog, eventi dopo le issue. Assenza di settings
@@ -371,13 +380,22 @@ Per US-24/25, il formato esteso sarà `kuayle.workspace`, versione **2**:
   Allocare prima anche gli ID dei worklog presenti solo negli snapshot di eliminazione.
   Rimappare `worklog.id`, `owner_user_id`, `created_by_user_id` negli snapshot;
   non modificare UUID citati incidentalmente nel testo della descrizione.
-- Accettare archivio v1 senza Efforts con default attivo/Europe-Rome; emettere v2
-  soltanto quando l'estensione di trasferimento sarà operativa. Il backend T-01
-  mantiene il formato v1 attuale e non dichiara un round-trip Efforts già disponibile.
+- Accettare archivio v1 senza Efforts con default attivo/Europe-Rome; tutti i nuovi
+  export emettono v2. I client precedenti che accettano soltanto v1 devono essere
+  aggiornati per importare i nuovi archivi.
 - Validare durate, riferimenti e somme giornaliere prima dell'import atomico.
   Ripristinare date, stato disabilitato e snapshot senza rieseguire effetti worklog,
   azzeramenti o nuovi eventi. L'export richiede una vista coerente dei dati, oltre
   alla barriera privacy esistente, e mantiene i blocchi per workspace privati.
+
+L'export acquisisce la barriera privacy del workspace prima dello snapshot
+`REPEATABLE READ READ ONLY`, usando una sola connessione per tutte le tabelle.
+Le scritture concorrenti non producono combinazioni incoerenti di worklog e storico.
+Il lock di sessione è rilasciato prima del ritorno della connessione al pool.
+L'import valida anche identità immutabili, snapshot, revisioni, riferimenti e
+limiti giornalieri dopo la rimappatura utenti. Gli UUID storici non disponibili
+non possono essere usati per creare membership. La descrizione viene conservata
+letteralmente, anche quando contiene UUID o URL di allegati.
 
 ## 5. Scope e canali indiretti
 
@@ -387,7 +405,7 @@ titolarità, assegnazione e visibilità. I PAT esistenti non cambiano. La nuova 
 Efforts nella UI espande Read a read, Read & write a read+write. I preset con tutte
 le letture includono read; solo Full access include anche write. Triage resta invariato.
 
-Contratto per le storie successive, da applicare prima di esporre scritture o archivi:
+Regole applicate alle route e ai percorsi di dominio:
 
 | Percorso | Regola PAT |
 | --- | --- |
@@ -396,17 +414,15 @@ Contratto per le storie successive, da applicare prima di esporre scritture o ar
 | Storico issue | Gli eventi Efforts sono omessi senza `efforts:read`; gli altri eventi restano leggibili con `issues:read`. |
 | Export workspace v2 | `workspace:transfer` + `efforts:read`; nessun archivio Efforts parziale. |
 | Import workspace | Mantiene il vincolo attuale di sessione interattiva. |
-| Duplicazione | Con il comportamento Efforts operativo richiede `issue:create` + read/write Efforts; negazione uniforme senza dipendere dalla presenza di una stima. |
+| Duplicazione | Richiede `issue:create` + read/write Efforts; negazione uniforme senza dipendere dalla presenza di una stima. |
 | Update/bulk generici | I campi senza effetti Efforts mantengono il contratto attuale. Le operazioni che possono mutare Efforts richiedono read/write, prima di qualsiasi effetto; niente mutazioni parziali o salti degli invarianti. |
-| Delete issue/bulk | Con il lifecycle Efforts operativo richiede anche read/write; non dipende dalla presenza dei dati. |
+| Delete issue/bulk | Richiede anche read/write; non dipende dalla presenza dei dati. |
 | Condivisione pubblica | Nessun dato o evento Efforts, nessuna credenziale Efforts derivata dal link. |
 
-La tabella descrive i controlli da integrare in US-18/19 e nel lifecycle: T-01 non
-modifica le autorizzazioni delle scritture generiche esistenti. T-02 integra
-adesso gli scope read/write sui cambi di stato, bulk e rifiuto triage, prima degli
-effetti e indipendentemente dai dati presenti. Le nuove route di scrittura Efforts
-sono ora registrate da EP-01–03 soltanto per sessioni interattive; l’esposizione
-PAT resta subordinata ai controlli US-18/19 sugli altri canali.
+Negazioni per duplicazione/eliminazione sono uniformi, indipendenti dalla presenza
+di dati Efforts o dall'attivazione. Cambi di stato, bulk e rifiuto triage richiedono
+read/write prima degli effetti. Gli scope non aumentano i permessi del ruolo.
+Il repository filtra anche le letture prive del contesto autenticato Efforts.
 
 ## 6. Verifica T-01
 
@@ -425,5 +441,5 @@ Verificato il 2026-10-17:
 
 Questa sezione registra la verifica T-01. Le garanzie delle scritture T-02 sono
 verificate separatamente in [efforts-transactions.md](efforts-transactions.md).
-Il round-trip degli archivi Efforts resta in US-24/25; i soli vincoli di riga non
-lo sostituiscono.
+Il completamento V1, inclusi round-trip e snapshot concorrente dell’export, è
+verificato in [efforts-acceptance.md](efforts-acceptance.md).

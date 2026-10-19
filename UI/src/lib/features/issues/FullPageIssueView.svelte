@@ -51,6 +51,7 @@
 	import { getIssueCopyPrompt } from '$lib/api/ai-settings';
 	import HistoryAssignees from './HistoryAssignees.svelte';
 	import EffortPlanning from './EffortPlanning.svelte';
+	import EffortHistoryEntry from './EffortHistoryEntry.svelte';
 	import EffortWorklogs from './EffortWorklogs.svelte';
 	import IssueMachineActions from '$lib/features/dev-machines/IssueMachineActions.svelte';
 	import IssueMachinePickerDialog, { type IssueMachineIntent } from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
@@ -136,12 +137,24 @@
 	const descriptionCursors = $derived(getRemoteCursors('description'));
 	const newCommentViewers = $derived(presenceState.getViewersForField('new-comment'));
 
+	const activityIdentity = $derived(`${slug}:${issue.id}:${authState.user?.id}`);
+	let activityGeneration = 0;
 	let disposed = false;
+	$effect(() => { void activityIdentity; comments = []; history = []; });
+
+	function onActivityRefresh(event: Event) {
+		const detail = (event as CustomEvent<{ slug?: string; resources?: string[] }>).detail;
+		if (detail?.slug && detail.slug !== slug) return;
+		if (!detail?.resources?.length || detail.resources.some(resource => ['issues', 'workspace', 'members', 'teams'].includes(resource))) void refreshActivity();
+	}
+
 	onMount(async () => {
+		const key = activityIdentity;
+		const version = ++activityGeneration;
 		try {
 		// Load team statuses (needed on direct navigation / refresh)
 		await teamStatusesState.load(slug, issue.team_id);
-		if (disposed) return;
+		if (disposed || key !== activityIdentity) return;
 
 		const [c, h, m, l, p] = await Promise.all([
 			listComments(slug, issue.identifier),
@@ -150,9 +163,8 @@
 			listLabels(slug),
 			listProjects(slug)
 		]);
-		if (disposed) return;
-		comments = c ?? [];
-		history = h ?? [];
+		if (disposed || key !== activityIdentity) return;
+		if (version === activityGeneration) { comments = c ?? []; history = h ?? []; }
 		members = m ?? [];
 		labels = l ?? [];
 		projects = p ?? [];
@@ -163,7 +175,7 @@
 		// Join presence AFTER members are loaded so names resolve correctly
 		presenceState.join(issue.id, m ?? []);
 		} catch {
-			if (!disposed) { comments = []; history = []; members = []; labels = []; projects = []; }
+			if (!disposed && key === activityIdentity) { comments = []; history = []; members = []; labels = []; projects = []; }
 		}
 	});
 
@@ -199,7 +211,7 @@
 	function onPresenceSync(e: Event) { presenceState.handleSync((e as CustomEvent).detail); }
 	function onFocusUpdate(e: Event) { presenceState.handleFocusUpdate((e as CustomEvent).detail); }
 	function onFocusLeaveEvent(e: Event) { presenceState.handleFocusLeave((e as CustomEvent).detail); }
-	function onReconnected() { if (loaded) presenceState.join(issue.id, members); }
+	function onReconnected() { if (loaded) presenceState.join(issue.id, members); void refreshActivity(); }
 
 	const issueKeyHandler = createKeyboardHandler([
 		{ key: 's', handler: () => { statusOpen = true; } },
@@ -209,6 +221,7 @@
 	]);
 
 	onMount(() => {
+		window.addEventListener('app:refresh', onActivityRefresh);
 		window.addEventListener('keydown', issueKeyHandler);
 		window.addEventListener('ws:issue-updated', onIssueUpdated);
 		window.addEventListener('ws:issue-deleted', onIssueDeleted);
@@ -223,6 +236,8 @@
 
 	onDestroy(() => {
 		disposed = true;
+		activityGeneration++;
+		window.removeEventListener('app:refresh', onActivityRefresh);
 		window.removeEventListener('keydown', issueKeyHandler);
 		presenceState.leave();
 		if (descriptionSaveTimer) {
@@ -485,9 +500,10 @@
 	}
 
 	async function refreshIssue() {
+		const key = activityIdentity;
 		try {
 			const fresh = await getIssue(slug, issue.identifier);
-			if (disposed) return;
+			if (disposed || key !== activityIdentity) return;
 			const idx = issuesState.issues.findIndex(i => i.identifier === issue.identifier);
 			if (idx >= 0) issuesState.issues[idx] = fresh;
 			if (issuesState.selectedIssue?.identifier === issue.identifier) {
@@ -500,14 +516,23 @@
 	}
 
 	async function refreshActivity() {
+		const version = ++activityGeneration;
+		const key = activityIdentity;
+		const current = () => !disposed && key === activityIdentity && version === activityGeneration;
 		try {
 			const [c, h] = await Promise.all([
 				listComments(slug, issue.identifier),
 				getIssueHistory(slug, issue.identifier)
 			]);
+			if (!current()) return;
 			comments = c ?? [];
 			history = h ?? [];
-		} catch { /* ignore */ }
+		} catch (failure) {
+			if (current() && [401, 403, 404].includes((failure as { status?: number }).status ?? 0)) {
+				comments = [];
+				history = [];
+			}
+		}
 	}
 
 	function copyToClipboard(text: string, toastKey: string) {
@@ -1030,7 +1055,7 @@
 						{@const GROUP_THRESHOLD_MS = 5000}
 						{@const historyGroups = [...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).reduce<Array<{ items: IssueHistory[]; time: string }>>((acc, h) => {
 							const prev = acc[acc.length - 1];
-							if (prev && Math.abs(new Date(h.created_at).getTime() - new Date(prev.time).getTime()) < GROUP_THRESHOLD_MS) {
+							if (prev && !h.effort && !prev.items.some(item => item.effort) && Math.abs(new Date(h.created_at).getTime() - new Date(prev.time).getTime()) < GROUP_THRESHOLD_MS) {
 								prev.items.push(h);
 							} else {
 								acc.push({ items: [h], time: h.created_at });
@@ -1064,11 +1089,14 @@
 									{@const iconColor = items.length > 1 ? 'text-[var(--color-text-tertiary)]' : historyColor(firstField)}
 									{@const textFields = [...new Set(items.filter(c => c.field === 'title' || c.field === 'description').map(c => c.field))]}
 									{@const valueItems = items.filter((c, i, arr) => c.field !== 'title' && c.field !== 'description' && arr.findIndex(x => x.field === c.field) === i)}
-									<div class="relative flex items-center gap-3 pb-2.5">
+									<div class="relative flex {items[0].effort ? 'items-start' : 'items-center'} gap-3 pb-2.5">
 										<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center ring-2 ring-[var(--color-bg)] rounded-full bg-[var(--color-bg)] {iconColor}">
 											<IconComponent size={12} />
 										</div>
-										<div class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0 overflow-hidden">
+										<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0">
+											{#if items[0].effort}
+												<EffortHistoryEntry event={items[0].effort} />
+											{:else}
 											{#if textFields.length > 0}
 												<span>{m['issue.updated']()} <strong class="text-[var(--color-text-secondary)]">{textFields.map(f => historyFieldLabel(f)).join(', ')}</strong></span>
 												{#if valueItems.length > 0}<span class="text-[var(--app-border)]">|</span>{/if}
@@ -1091,8 +1119,9 @@
 													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value, change.new_display_value)}</code>
 												{/if}
 											{/each}
-											<span>&middot;</span>
-											<span class="shrink-0">{formatRelativeTime(entry.time, getLocale())}</span>
+											{/if}
+											{#if !items[0].effort}<span>&middot;</span>
+											<span class="shrink-0">{formatRelativeTime(entry.time, getLocale())}</span>{/if}
 										</div>
 									</div>
 								{/each}

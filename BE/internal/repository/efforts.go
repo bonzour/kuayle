@@ -19,7 +19,7 @@ func NewEffortRepository(db *sqlx.DB) *EffortRepository { return &EffortReposito
 // authenticated workspace member even when called outside the HTTP middleware.
 func effortWorkspaceVisible(ctx context.Context, column string) string {
 	access, ok := domain.AccessFromContext(ctx)
-	if !ok || access.UserID == uuid.Nil {
+	if !ok || access.UserID == uuid.Nil || !domain.CanReadEfforts(ctx) {
 		return "FALSE"
 	}
 	return workspaceVisible(ctx, column)
@@ -59,7 +59,7 @@ func (r *EffortRepository) Summary(ctx context.Context, workspaceID uuid.UUID, i
  COALESCE(s.minutes,0) AS spent_minutes FROM visible v
  LEFT JOIN issue_efforts e ON e.issue_id=v.id AND e.workspace_id=$1
  LEFT JOIN spent s ON s.issue_id=v.id
- ) SELECT own.revision,
+ ) SELECT own.revision,(SELECT BOOL_OR(estimate_minutes IS NOT NULL OR remaining_minutes IS NOT NULL OR spent_minutes>0) FROM contributions) AS has_data,(SELECT COUNT(*) > 1 FROM visible) AS has_visible_descendants,
  own.estimate_minutes AS "own.estimate_minutes",own.spent_minutes AS "own.spent_minutes",
  own.remaining_minutes AS "own.remaining_minutes",
  totals.estimate_minutes AS "total.estimate_minutes",totals.spent_minutes AS "total.spent_minutes",

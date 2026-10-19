@@ -68,6 +68,9 @@ type ExportedWorkspaceArchive struct {
 }
 
 func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain.Workspace, actorID uuid.UUID) (*ExportedWorkspaceArchive, error) {
+	if !domain.CanReadEfforts(ctx) {
+		return nil, domain.ErrEffortForbidden
+	}
 	guard, err := s.repo.BeginPublicExport(ctx, workspace.ID)
 	if err != nil {
 		if errors.Is(err, repository.ErrPrivateWorkspaceTransfer) {
@@ -111,6 +114,7 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 		}
 	}
 
+	collectEffortArchiveUsers(data, userIDs)
 	ids := make([]uuid.UUID, 0, len(userIDs))
 	for id := range userIDs {
 		ids = append(ids, id)
@@ -119,9 +123,15 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 	if err != nil {
 		return nil, err
 	}
-	if len(data.Users) != len(ids) {
-		return nil, fmt.Errorf("export contains references to missing users")
+	for _, user := range data.Users {
+		delete(userIDs, uuid.MustParse(transferString(user["id"])))
 	}
+	for id := range userIDs {
+		data.UnavailableUsers = append(data.UnavailableUsers, dto.WorkspaceTransferRow{"id": id.String()})
+	}
+	sort.Slice(data.UnavailableUsers, func(i, j int) bool {
+		return transferString(data.UnavailableUsers[i]["id"]) < transferString(data.UnavailableUsers[j]["id"])
+	})
 	sourceUsers := make(map[string]string, len(data.Users))
 	for _, row := range data.Users {
 		id := transferString(row["id"])
@@ -131,6 +141,9 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 		manifest: dto.WorkspaceExportManifest{SourceWorkspaceID: workspace.ID.String(), SourceWorkspaceSlug: workspace.Slug},
 		data:     data,
 	}
+	if err := validateEffortArchive(validationArchive); err != nil {
+		return nil, err
+	}
 	validationMap, _, err := prepareIdentityMap(validationArchive, workspace.ID, sourceUsers)
 	if err != nil {
 		return nil, fmt.Errorf("validate workspace export: %w", err)
@@ -139,7 +152,7 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 		return nil, fmt.Errorf("validate workspace export: %w", err)
 	}
 
-	counts := map[string]int{"users": len(data.Users)}
+	counts := map[string]int{"users": len(data.Users), "unavailable_users": len(data.UnavailableUsers)}
 	for table, rows := range data.Tables {
 		counts[table] = len(rows)
 	}
@@ -388,7 +401,7 @@ func parseWorkspaceArchive(path string) (*parsedWorkspaceArchive, error) {
 	if err := dto.DecodeTransferJSON(manifestBytes, &manifest); err != nil {
 		return fail("manifest is invalid JSON", err)
 	}
-	if manifest.Format != dto.WorkspaceExportFormat || manifest.Version != dto.WorkspaceExportVersion {
+	if manifest.Format != dto.WorkspaceExportFormat || (manifest.Version != 1 && manifest.Version != dto.WorkspaceExportVersion) {
 		_ = zr.Close()
 		return nil, &WorkspaceTransferError{Code: "UNSUPPORTED_WORKSPACE_ARCHIVE", Message: "This workspace archive version is not supported", Cause: ErrUnsupportedArchive}
 	}
@@ -453,6 +466,9 @@ func validateWorkspaceArchive(parsed *parsedWorkspaceArchive) error {
 	for _, spec := range repository.WorkspaceTransferTableSpecs() {
 		expected[spec.Name] = spec
 		if _, ok := parsed.data.Tables[spec.Name]; !ok {
+			if parsed.manifest.Version == 1 && isEffortTransferTable(spec.Name) {
+				continue
+			}
 			return invalidArchive("workspace data is missing table "+spec.Name, nil)
 		}
 	}
@@ -466,6 +482,9 @@ func validateWorkspaceArchive(parsed *parsedWorkspaceArchive) error {
 	}
 	if parsed.manifest.Counts["users"] != len(parsed.data.Users) {
 		return invalidArchive("user count does not match the manifest", nil)
+	}
+	if err := validateEffortArchive(parsed); err != nil {
+		return err
 	}
 	assetRows := parsed.data.Tables["assets"]
 	assetPaths := make(map[string]bool, len(assetRows))
@@ -586,6 +605,9 @@ func (s *WorkspaceTransferService) Import(ctx context.Context, path, name, slug 
 	if err != nil {
 		return nil, err
 	}
+	if err := validateEffortArchiveBudget(parsed.data, idMap); err != nil {
+		return nil, err
+	}
 	if err := validateArchiveReferences(parsed, idMap); err != nil {
 		return nil, err
 	}
@@ -687,7 +709,12 @@ func (s *WorkspaceTransferService) Import(ctx context.Context, path, name, slug 
 			ownerInserted = true
 		}
 		for _, sourceRow := range parsed.data.Tables[spec.Name] {
-			row := remapTransferValue(cloneTransferRow(sourceRow), idMap, parsed.manifest.SourceWorkspaceSlug, slug, assetIDMap).(dto.WorkspaceTransferRow)
+			var row dto.WorkspaceTransferRow
+			if isEffortTransferTable(spec.Name) {
+				row = remapEffortRow(sourceRow, idMap)
+			} else {
+				row = remapTransferValue(cloneTransferRow(sourceRow), idMap, parsed.manifest.SourceWorkspaceSlug, slug, assetIDMap).(dto.WorkspaceTransferRow)
+			}
 			if spec.Name == "workspace_members" && transferString(row["user_id"]) == importerID.String() {
 				continue
 			}
@@ -800,6 +827,9 @@ func prepareIdentityMap(parsed *parsedWorkspaceArchive, workspaceID uuid.UUID, u
 				assetMap[oldID] = newID
 			}
 		}
+	}
+	if err := prepareEffortIdentities(parsed, idMap, seen); err != nil {
+		return nil, nil, err
 	}
 	return idMap, assetMap, nil
 }

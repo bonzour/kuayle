@@ -20,6 +20,8 @@
 	import { mentionInteractivity } from '$lib/components/shared/mention/mention-interactivity.action';
 	import HistoryAssignees from './HistoryAssignees.svelte';
 	import EffortPlanning from './EffortPlanning.svelte';
+	import EffortHistoryEntry from './EffortHistoryEntry.svelte';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import EffortWorklogs from './EffortWorklogs.svelte';
 
 	let {
@@ -53,20 +55,44 @@
 		isSubscribed = issue.is_subscribed ?? false;
 	});
 
+	const activityIdentity = $derived(`${slug}:${issue.id}:${authState.user?.id}`);
+	let generation = 0;
 	let disposed = false;
-	onDestroy(() => { disposed = true; });
-	onMount(async () => {
+	onDestroy(() => { disposed = true; generation++; });
+
+	async function refreshActivity() {
+		const key = activityIdentity;
+		const version = ++generation;
+		const current = () => !disposed && key === activityIdentity && version === generation;
 		try {
-		const [c, h, m] = await Promise.all([
-			listComments(slug, issue.identifier),
-			getIssueHistory(slug, issue.identifier),
-			listMembers(slug)
-		]);
-		if (disposed) return;
-		comments = c;
-		history = h;
-		members = m;
-		} catch { if (!disposed) { comments = []; history = []; members = []; } }
+			const [c, h, m] = await Promise.all([
+				listComments(slug, issue.identifier), getIssueHistory(slug, issue.identifier), listMembers(slug)
+			]);
+			if (!current()) return;
+			comments = c ?? [];
+			history = h ?? [];
+			members = m ?? [];
+		} catch (failure) {
+			if (current() && [401, 403, 404].includes((failure as { status?: number }).status ?? 0)) {
+				comments = []; history = []; members = [];
+			}
+		}
+	}
+
+	$effect(() => { void activityIdentity; comments = []; history = []; members = []; void refreshActivity(); });
+	onMount(() => {
+		function refresh(event: Event) {
+			const detail = (event as CustomEvent<{ slug?: string; resources?: string[] }>).detail;
+			if (detail?.slug && detail.slug !== slug) return;
+			if (!detail?.resources?.length || detail.resources.some(resource => ['issues', 'workspace', 'members', 'teams'].includes(resource))) void refreshActivity();
+		}
+		const reconnect = () => { void refreshActivity(); };
+		window.addEventListener('app:refresh', refresh);
+		window.addEventListener('ws:reconnected', reconnect);
+		return () => {
+			window.removeEventListener('app:refresh', refresh);
+			window.removeEventListener('ws:reconnected', reconnect);
+		};
 	});
 
 	async function handleAddComment(e: Event) {
@@ -280,12 +306,14 @@
 
 					<div class="space-y-0">
 						{#each visibleHistory as entry}
-							<div class="relative flex items-center gap-3 pb-3">
+							<div class="relative flex {entry.effort ? 'items-start' : 'items-center'} gap-3 pb-3">
 								<div class="relative z-10 flex h-4 w-4 shrink-0 items-center justify-center">
 									<div class="h-1.5 w-1.5 rounded-full bg-[var(--color-text-tertiary)] ring-2 ring-[var(--color-bg)]"></div>
 								</div>
 								<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0">
-									{#if entry.field === 'title' || entry.field === 'description'}
+									{#if entry.effort}
+										<EffortHistoryEntry event={entry.effort} />
+									{:else if entry.field === 'title' || entry.field === 'description'}
 										<span>updated <strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(entry.field)}</strong></span>
 									{:else}
 										<span>changed <strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(entry.field)}</strong></span>
@@ -304,8 +332,8 @@
 											<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(entry.field, entry.new_value, entry.new_display_value)}</code>
 										{/if}
 									{/if}
-									<span class="text-[var(--color-text-tertiary)]">&middot;</span>
-									<span>{formatRelativeTime(entry.created_at, getLocale())}</span>
+									{#if !entry.effort}<span class="text-[var(--color-text-tertiary)]">&middot;</span>
+									<span>{formatRelativeTime(entry.created_at, getLocale())}</span>{/if}
 								</div>
 							</div>
 						{/each}

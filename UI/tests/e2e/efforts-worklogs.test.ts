@@ -51,6 +51,11 @@ function fixture(role = 'member', count = 0) {
 	const remaining: Record<string, number> = { 'EP-1': 480, 'EP-2': 480 };
 	const state = {
 		role,
+		history: {} as Record<string, unknown[]>,
+		hasData: true,
+		hasDescendants: false,
+		total: null as null | { estimate_minutes: number | null; spent_minutes: number; remaining_minutes: number; estimate_partial: boolean; remaining_partial: boolean },
+		accessible: true,
 		enabled: true,
 		today: '2026-01-02',
 		loseResponse: false,
@@ -101,6 +106,8 @@ function fixture(role = 'member', count = 0) {
 				if (path.endsWith('/efforts/settings'))
 					return route.fulfill({ json: { enabled: state.enabled, timezone: 'Pacific/Kiritimati', revision: 0, today: state.today } });
 				if (path.endsWith('/efforts/worklog-owners')) return route.fulfill({ json: [person(), person(memberId)] });
+				if (!state.accessible && path.includes('/issues/EP-')) return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
+				if (path.endsWith('/history')) return route.fulfill({ json: state.history[path.split('/').at(-2)!] ?? [] });
 				const match = path.match(/\/issues\/(EP-[12])\/efforts(?:\/worklogs(?:\/([^/]+))?)?$/);
 				if (match) {
 					const identifier = match[1];
@@ -108,12 +115,14 @@ function fixture(role = 'member', count = 0) {
 						return route.fulfill({
 							json: {
 								revision: revisions[identifier],
+								has_data: state.hasData,
+								has_visible_descendants: state.hasDescendants,
 								own: {
 									estimate_minutes: 480,
 									spent_minutes: logs[identifier].reduce((sum, row) => sum + row.duration_minutes, 0),
 									remaining_minutes: remaining[identifier]
 								},
-								total: {
+								total: state.total ?? {
 									estimate_minutes: 480,
 									spent_minutes: 0,
 									remaining_minutes: remaining[identifier],
@@ -485,3 +494,47 @@ for (const view of ['page', 'panel'] as const) {
 		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 	});
 }
+
+for (const view of ['page', 'panel'] as const) {
+ test(`Efforts totals and complete history refresh in the ${view}`, async ({page}, testInfo) => {
+  const {state,attach} = fixture('owner',1);
+  state.hasDescendants=true;
+  state.total={estimate_minutes:720,spent_minutes:180,remaining_minutes:540,estimate_partial:true,remaining_partial:true};
+  const snapshot={worklog:{id:'deleted-log',owner_user_id:memberId,created_by_user_id:userId,work_date:'2020-02-01',duration_minutes:90,description:'Historical work\n漢字 👩🏽‍💻',created_at:timestamp,updated_at:timestamp}};
+  const event={id:'event',issue_id:'issue',event_type:'worklog_deleted',actor:{kind:'user',user_id:userId},cause:'manual',snapshot_version:1,before:snapshot,after:null,revision:2,created_at:timestamp,users:[person(),{...person(memberId),available:false}]};
+  state.history['EP-1']=[{id:'event',issue_id:'issue',user_id:userId,field:'efforts',old_value:null,new_value:null,created_at:timestamp,effort:event}];
+  await attach(page,view);
+  if(view==='panel')await page.getByRole('button',{name:/^Activity \(/}).click();
+  const totals=page.getByLabel('Total of visible issues',{exact:true});
+  await expect(totals).toContainText('12h');await expect(totals).toContainText('9h');await expect(totals).toContainText('partial');
+  const history=page.locator('[data-effort-event="worklog_deleted"]');
+  await expect(history).toContainText('Test User');await history.getByText('Work log details',{exact:true}).click();
+  await expect(history).toContainText('User no longer available');await expect(history).toContainText('2020-02-01');await expect(history).toContainText('1h 30m');await expect(history).toContainText('漢字 👩🏽‍💻');await expect(history).toContainText('Entered by Test User');
+  state.total.remaining_minutes=0;
+  state.history['EP-1'].push({id:'closed',issue_id:'issue',field:'efforts',created_at:'2026-10-19T12:01:00Z',effort:{...event,event_type:'remaining_set',actor:{kind:'system',system_source:'github'},cause:'closure',before:{planning:{estimate_minutes:480,remaining_minutes:60}},after:{planning:{estimate_minutes:480,remaining_minutes:0}}}});
+  state.refresh();
+  await expect(totals).toContainText('0m');await expect(page.locator('[data-effort-event="remaining_set"]')).toContainText('System (github)');await expect(page.locator('[data-effort-event="remaining_set"]')).toContainText('issue closed');
+  await page.screenshot({path:testInfo.outputPath(`efforts-v1-${view}.png`),fullPage:true});
+  state.accessible=false;state.refresh();
+  await expect(page.locator('[data-effort-event]')).toHaveCount(0);
+ });
+ test(`disabled empty Efforts is hidden in the ${view}`,async({page})=>{
+  const {state,attach}=fixture('guest');state.enabled=false;state.hasData=false;
+  await attach(page,view);await expect(register(page)).toBeVisible();
+  await expect(page.getByRole('button',{name:'Effort',exact:true})).toHaveCount(0);
+ });
+}
+
+test('two sessions refresh parent totals and history after reconnect',async({page,context})=>{
+ const {state,attach}=fixture('owner');state.hasDescendants=true;
+ state.total={estimate_minutes:720,spent_minutes:0,remaining_minutes:720,estimate_partial:false,remaining_partial:false};
+ await attach(page);
+ const second=await context.newPage();await attach(second);
+ for(const session of [page,second])await expect(session.getByLabel('Total of visible issues',{exact:true})).toContainText('12h');
+ state.total.remaining_minutes=540;state.total.spent_minutes=180;state.refresh();
+ for(const session of [page,second])await expect(session.getByLabel('Total of visible issues',{exact:true})).toContainText('9h');
+ state.total.remaining_minutes=480;
+ await second.evaluate(()=>window.dispatchEvent(new CustomEvent('ws:reconnected')));
+ await expect(second.getByLabel('Total of visible issues',{exact:true})).toContainText('8h');
+ await second.close();
+});

@@ -25,6 +25,8 @@ export interface EffortTotals {
 }
 
 export interface EffortSummary {
+ has_data: boolean;
+ has_visible_descendants: boolean;
 	revision: number;
 	own: EffortValues;
 	total: EffortTotals;
@@ -53,7 +55,7 @@ export interface EffortWorklogPage extends PaginatedResponse<EffortWorklog> {
 	revision: number;
 }
 
-// Direct Efforts writes are session-only.
+// Direct issue writes require a session or explicit read/write Efforts scopes.
 export interface EffortMutationRequest {
 	request_id: string;
 	expected_revision: number;
@@ -99,6 +101,7 @@ export type EffortSnapshot =
 	| { worklog: Omit<EffortWorklog, 'issue_id' | 'owner' | 'operator'> & { owner_user_id: string; created_by_user_id: string } };
 
 export interface EffortEvent {
+ users: EffortUser[];
 	id: string;
 	issue_id: string;
 	event_type: 'estimate_set' | 'remaining_set' | 'worklog_created' | 'worklog_updated' | 'worklog_deleted';

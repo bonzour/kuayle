@@ -653,3 +653,10 @@ func testIssueListUUIDFilters(t *testing.T, newRepo func() repository.IssueRepo)
 		})
 	}
 }
+
+func (r *testIssueRepo) BeginDuplicateTx(ctx context.Context, ws, source uuid.UUID) (*sqlx.Tx, error) {
+	return r.BeginTx(ctx)
+}
+func (r *testIssueRepo) CopyEffortPlanning(context.Context, *sqlx.Tx, uuid.UUID, *domain.Issue) error {
+	return nil
+}

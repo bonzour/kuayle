@@ -50,7 +50,7 @@ func (h *EffortHandler) SetRemaining(c echo.Context) error {
 }
 
 func (h *EffortHandler) setPlanning(c echo.Context, estimate bool) error {
-	if domain.IsToken(c.Request().Context()) || c.Get(middleware.TokenScopesKey) != nil {
+	if err := domain.CheckEffortToken(c.Request().Context()); err != nil {
 		return response.Forbidden(c)
 	}
 	var estimateReq dto.SetEffortEstimateRequest
@@ -136,7 +136,7 @@ func (h *EffortHandler) UpdateWorklog(c echo.Context) error { return h.worklogCo
 func (h *EffortHandler) DeleteWorklog(c echo.Context) error { return h.worklogCommand(c, "delete") }
 
 func (h *EffortHandler) worklogCommand(c echo.Context, operation string) error {
-	if domain.IsToken(c.Request().Context()) || c.Get(middleware.TokenScopesKey) != nil {
+	if err := domain.CheckEffortToken(c.Request().Context()); err != nil {
 		return response.Forbidden(c)
 	}
 	var create dto.CreateEffortWorklogRequest

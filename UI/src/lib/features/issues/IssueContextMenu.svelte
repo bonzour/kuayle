@@ -404,7 +404,7 @@
 	<AlertDialog.Content>
 		<AlertDialog.Header>
 			<AlertDialog.Title>{m['common.context_menu.delete_issue_confirm']({ id: issue.identifier })}</AlertDialog.Title>
-			<AlertDialog.Description>This action cannot be undone.</AlertDialog.Description>
+			<AlertDialog.Description>{m['common.context_menu.delete_issue_desc']()}</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel variant="outline">{m['common.cancel']()}</AlertDialog.Cancel>

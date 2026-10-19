@@ -230,7 +230,7 @@ func TestEffortWorklogsHTTP(t *testing.T) {
 	request(guestJWT, "GET", worklogs, nil, 200)
 	raw, hash, prefix, err := domain.GenerateToken()
 	require.NoError(t, err)
-	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: owner, Name: "EP03", TokenHash: hash, TokenPrefix: prefix, Scopes: domain.RolePermissions[domain.RoleOwner]}))
+	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: owner, Name: "EP03", TokenHash: hash, TokenPrefix: prefix, Scopes: []string{domain.PermEffortsRead}}))
 	for _, route := range []struct{ method, path string }{{"POST", worklogs}, {"PUT", path}, {"DELETE", path}, {"GET", "EP-1/efforts/worklog-owners"}} {
 		request(raw, route.method, route.path, valid, 403)
 	}

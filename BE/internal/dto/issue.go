@@ -1,6 +1,9 @@
 package dto
 
-import "time"
+import (
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"time"
+)
 
 type CreateIssueRequest struct {
 	Title       string   `json:"title" validate:"required,min=1,max=500"`
@@ -114,15 +117,16 @@ type IssueSummaryResponse struct {
 }
 
 type IssueHistoryResponse struct {
-	ID              string    `json:"id"`
-	IssueID         string    `json:"issue_id"`
-	UserID          string    `json:"user_id"`
-	Field           string    `json:"field"`
-	OldValue        *string   `json:"old_value"`
-	NewValue        *string   `json:"new_value"`
-	OldDisplayValue *string   `json:"old_display_value,omitempty"`
-	NewDisplayValue *string   `json:"new_display_value,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
+	Effort          *domain.EffortEvent `json:"effort,omitempty" db:"-"`
+	ID              string              `json:"id"`
+	IssueID         string              `json:"issue_id"`
+	UserID          string              `json:"user_id,omitempty"`
+	Field           string              `json:"field"`
+	OldValue        *string             `json:"old_value"`
+	NewValue        *string             `json:"new_value"`
+	OldDisplayValue *string             `json:"old_display_value,omitempty"`
+	NewDisplayValue *string             `json:"new_display_value,omitempty"`
+	CreatedAt       time.Time           `json:"created_at"`
 }
 
 type ConvertIssueToProjectResponse struct {

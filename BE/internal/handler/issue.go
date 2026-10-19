@@ -262,6 +262,9 @@ func (h *IssueHandler) Duplicate(c echo.Context) error {
 	userID := middleware.GetUserID(c)
 	issue, err := h.issueSvc.Duplicate(c.Request().Context(), ws.ID, userID, c.Param("identifier"), req.IncludeSubIssues)
 	if err != nil {
+		if errors.Is(err, domain.ErrEffortForbidden) {
+			return response.Forbidden(c)
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
@@ -364,6 +367,9 @@ func (h *IssueHandler) Delete(c echo.Context) error {
 	}
 
 	if err := h.issueSvc.Delete(c.Request().Context(), ws.ID, userID, identifier); err != nil {
+		if errors.Is(err, domain.ErrEffortForbidden) {
+			return response.Forbidden(c)
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
@@ -421,7 +427,7 @@ func (h *IssueHandler) BulkDelete(c echo.Context) error {
 
 	deleted, err := h.issueSvc.BulkDelete(c.Request().Context(), ws.ID, userID, canDeleteAny, req)
 	if err != nil {
-		if err.Error() == "forbidden" {
+		if err.Error() == "forbidden" || errors.Is(err, domain.ErrEffortForbidden) {
 			return response.Forbidden(c)
 		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
@@ -611,10 +617,15 @@ func (h *IssueHandler) GetHistory(c echo.Context) error {
 }
 
 func (h *IssueHandler) toIssueHistoryResponse(ctx context.Context, entry domain.IssueHistory) dto.IssueHistoryResponse {
+	userID := entry.UserID.String()
+	if entry.Effort != nil && entry.Effort.Actor.Kind == "system" {
+		userID = ""
+	}
 	return dto.IssueHistoryResponse{
+		Effort:          entry.Effort,
 		ID:              entry.ID.String(),
 		IssueID:         entry.IssueID.String(),
-		UserID:          entry.UserID.String(),
+		UserID:          userID,
 		Field:           entry.Field,
 		OldValue:        entry.OldValue,
 		NewValue:        entry.NewValue,

@@ -119,7 +119,7 @@ func TestEffortPlanningHTTP(t *testing.T) {
 		request(memberJWT, "HID-1", field, valid, 404)
 		raw, hash, prefix, err := domain.GenerateToken()
 		require.NoError(t, err)
-		require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: owner, Name: "EP02", TokenHash: hash, TokenPrefix: prefix, Scopes: domain.RolePermissions[domain.RoleOwner]}))
+		require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: owner, Name: "EP02", TokenHash: hash, TokenPrefix: prefix, Scopes: []string{domain.PermEffortsRead}}))
 		request(raw, "EP-1", field, valid, 403)
 	}
 	exec(`DELETE FROM issue_assignees WHERE issue_id=$1`, issue)

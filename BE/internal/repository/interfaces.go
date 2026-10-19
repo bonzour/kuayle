@@ -99,6 +99,8 @@ type IssueRepo interface {
 	BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, error)
 	BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error)
 	BeginTx(ctx context.Context) (*sqlx.Tx, error)
+	BeginDuplicateTx(ctx context.Context, workspaceID, sourceID uuid.UUID) (*sqlx.Tx, error)
+	CopyEffortPlanning(ctx context.Context, tx *sqlx.Tx, sourceID uuid.UUID, issue *domain.Issue) error
 }
 
 type AssetRepo interface {

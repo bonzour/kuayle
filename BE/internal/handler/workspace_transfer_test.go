@@ -91,6 +91,7 @@ func TestWorkspaceTransferExportReturnsZIPWithOrphanedSharedLink(t *testing.T) {
 	ctx := e.NewContext(httptest.NewRequest(http.MethodGet, "/api/workspaces/"+slug+"/export", nil), recorder)
 	ctx.Set("workspace", &domain.Workspace{ID: workspaceID, Name: "Transfer Handler", Slug: slug, OwnerID: userID})
 	ctx.Set(string(middleware.UserIDKey), userID)
+	ctx.SetRequest(ctx.Request().WithContext(domain.WithAccess(ctx.Request().Context(), domain.Access{UserID: userID, WorkspaceID: workspaceID})))
 
 	require.NoError(t, handler.Export(ctx))
 	require.Equal(t, http.StatusOK, recorder.Code)

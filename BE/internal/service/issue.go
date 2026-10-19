@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
@@ -68,6 +69,10 @@ func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRep
 }
 
 func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.UUID, req dto.CreateIssueRequest) (*domain.Issue, error) {
+	return s.create(ctx, workspaceID, creatorID, req, nil)
+}
+
+func (s *IssueService) create(ctx context.Context, workspaceID, creatorID uuid.UUID, req dto.CreateIssueRequest, source *uuid.UUID) (*domain.Issue, error) {
 	teamID, err := uuid.Parse(req.TeamID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid team_id")
@@ -78,7 +83,12 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		return nil, fmt.Errorf("team not found")
 	}
 
-	tx, err := s.issueRepo.BeginTx(ctx)
+	var tx *sqlx.Tx
+	if source != nil {
+		tx, err = s.issueRepo.BeginDuplicateTx(ctx, workspaceID, *source)
+	} else {
+		tx, err = s.issueRepo.BeginTx(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -171,6 +181,12 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 
 	if err := s.issueRepo.Create(ctx, tx, issue); err != nil {
 		return nil, err
+	}
+
+	if source != nil {
+		if err := s.issueRepo.CopyEffortPlanning(ctx, tx, *source, issue); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -274,6 +290,9 @@ func (s *IssueService) BulkCreateSubIssues(ctx context.Context, workspaceID, cre
 }
 
 func (s *IssueService) Duplicate(ctx context.Context, workspaceID, creatorID uuid.UUID, identifier string, includeSubIssues bool) (*domain.Issue, error) {
+	if err := domain.CheckEffortToken(ctx); err != nil {
+		return nil, err
+	}
 	original, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
 	if err != nil || original == nil {
 		return nil, fmt.Errorf("issue not found")
@@ -411,7 +430,7 @@ func (s *IssueService) duplicateIssue(ctx context.Context, workspaceID, creatorI
 		parentIDString := parentID.String()
 		req.ParentID = &parentIDString
 	}
-	return s.Create(ctx, workspaceID, creatorID, req)
+	return s.create(ctx, workspaceID, creatorID, req, &original.ID)
 }
 
 func (s *IssueService) GetByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.Issue, error) {
@@ -746,6 +765,9 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 }
 
 func (s *IssueService) Delete(ctx context.Context, workspaceID, actorID uuid.UUID, identifier string) error {
+	if err := domain.CheckEffortToken(ctx); err != nil {
+		return err
+	}
 	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
 	if err != nil || issue == nil {
 		return fmt.Errorf("issue not found")
@@ -1212,6 +1234,9 @@ func (s *IssueService) issueStatusCategory(ctx context.Context, issue *domain.Is
 }
 
 func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.UUID, canDeleteAny bool, req dto.BulkDeleteIssueRequest) (int, error) {
+	if err := domain.CheckEffortToken(ctx); err != nil {
+		return 0, err
+	}
 	issueIDs := make([]uuid.UUID, len(req.IssueIDs))
 	for i, id := range req.IssueIDs {
 		parsed, err := uuid.Parse(id)

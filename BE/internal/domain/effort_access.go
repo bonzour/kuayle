@@ -48,3 +48,13 @@ func EffortActorFromContext(ctx context.Context) (EffortActor, error) {
 	}
 	return EffortActor{Kind: "user", UserID: &access.UserID}, nil
 }
+
+// Efforts projections are never available to public contexts or unscoped PATs.
+func CanReadEfforts(ctx context.Context) bool {
+	access, ok := AccessFromContext(ctx)
+	if !ok || access.UserID == uuid.Nil {
+		return false
+	}
+	scopes, token := ctx.Value(tokenScopesKey{}).([]string)
+	return !token || slices.Contains(scopes, PermEffortsRead)
+}

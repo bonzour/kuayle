@@ -3,11 +3,13 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -37,6 +39,10 @@ func WorkspaceTransferTableSpecs() []WorkspaceTransferTableSpec {
 		{Name: "project_status_visibility", SelectSQL: `SELECT to_jsonb(x)::text FROM project_status_visibility x JOIN projects p ON p.id=x.project_id WHERE p.workspace_id=$1 ORDER BY x.project_id,x.status_id`},
 		{Name: "cycles", SelectSQL: `SELECT to_jsonb(x)::text FROM cycles x JOIN teams p ON p.id=x.team_id WHERE p.workspace_id=$1 ORDER BY x.team_id,x.number,x.id`, IDColumn: "id"},
 		{Name: "issues", SelectSQL: `SELECT to_jsonb(x)::text FROM issues x WHERE workspace_id=$1 ORDER BY created_at,id`, IDColumn: "id", UserFields: []string{"creator_id", "assignee_id"}},
+		{Name: "workspace_effort_settings", SelectSQL: `SELECT to_jsonb(x)::text FROM workspace_effort_settings x WHERE workspace_id=$1`},
+		{Name: "issue_efforts", SelectSQL: `SELECT to_jsonb(x)::text FROM issue_efforts x WHERE workspace_id=$1 ORDER BY issue_id`},
+		{Name: "effort_worklogs", SelectSQL: `SELECT to_jsonb(x)::text FROM effort_worklogs x WHERE workspace_id=$1 ORDER BY created_at,id`, IDColumn: "id", UserFields: []string{"owner_user_id", "created_by_user_id"}},
+		{Name: "effort_events", SelectSQL: `SELECT to_jsonb(x)::text FROM effort_events x WHERE workspace_id=$1 ORDER BY created_at,id`, IDColumn: "id", UserFields: []string{"actor_user_id"}},
 		{Name: "issue_labels", SelectSQL: `SELECT to_jsonb(x)::text FROM issue_labels x JOIN issues p ON p.id=x.issue_id WHERE p.workspace_id=$1 ORDER BY x.issue_id,x.label_id`},
 		{Name: "issue_assignees", SelectSQL: `SELECT to_jsonb(x)::text FROM issue_assignees x JOIN issues p ON p.id=x.issue_id WHERE p.workspace_id=$1 ORDER BY x.issue_id,x.user_id`, UserFields: []string{"user_id"}},
 		{Name: "issue_subscribers", SelectSQL: `SELECT to_jsonb(x)::text FROM issue_subscribers x JOIN issues p ON p.id=x.issue_id WHERE p.workspace_id=$1 ORDER BY x.issue_id,x.user_id`, UserFields: []string{"user_id"}},
@@ -73,8 +79,8 @@ type WorkspaceTransferRepository struct {
 // ExportReader reuses the lock transaction's connection for all archive reads.
 // Concurrent exports must not exhaust the pool holding one connection while
 // waiting for a second connection to perform their raw table queries.
-func (r *WorkspaceTransferRepository) ExportReader(tx *sqlx.Tx) *WorkspaceTransferRepository {
-	return &WorkspaceTransferRepository{db: r.db, exportTx: tx}
+func (r *WorkspaceTransferRepository) ExportReader(guard *WorkspaceExportGuard) *WorkspaceTransferRepository {
+	return &WorkspaceTransferRepository{db: r.db, exportTx: guard.tx}
 }
 
 func (r *WorkspaceTransferRepository) reader() sqlx.QueryerContext {
@@ -88,8 +94,52 @@ var ErrPrivateWorkspaceTransfer = ErrPrivateWorkspaceOperation
 
 // Hold the same workspace lock as privacy transitions until the archive has
 // been assembled. A preflight check alone could race raw table/asset reads.
-func (r *WorkspaceTransferRepository) BeginPublicExport(ctx context.Context, workspaceID uuid.UUID) (*sqlx.Tx, error) {
-	return beginPublicWorkspaceOperation(ctx, r.db, workspaceID)
+// The privacy lock precedes the REPEATABLE READ snapshot. A transaction-level
+// advisory SELECT would establish a stale snapshot while waiting for privacy.
+// Keep one connection, and release the session lock before returning it to the pool.
+type WorkspaceExportGuard struct {
+	tx        *sqlx.Tx
+	conn      *sqlx.Conn
+	workspace uuid.UUID
+}
+
+func (g *WorkspaceExportGuard) Rollback() error {
+	if g.conn == nil {
+		return nil
+	}
+	if g.tx != nil {
+		_ = g.tx.Rollback()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := g.conn.ExecContext(ctx, `SELECT pg_advisory_unlock_shared(hashtextextended($1::text,63))`, g.workspace)
+	if err != nil {
+		_ = g.conn.Raw(func(any) error { return driver.ErrBadConn })
+	}
+	closeErr := g.conn.Close()
+	g.conn = nil
+	return errors.Join(err, closeErr)
+}
+func (r *WorkspaceTransferRepository) BeginPublicExport(ctx context.Context, workspaceID uuid.UUID) (*WorkspaceExportGuard, error) {
+	conn, err := r.db.Connx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	guard := &WorkspaceExportGuard{conn: conn, workspace: workspaceID}
+	if _, err = conn.ExecContext(ctx, `SELECT pg_advisory_lock_shared(hashtextextended($1::text,63))`, workspaceID); err == nil {
+		guard.tx, err = conn.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	}
+	if err == nil {
+		err = requireVisible(ctx, guard.tx, workspaceVisible(ctx, uuidSQL(workspaceID))+" AND "+publicMetadataAllowed(uuidSQL(workspaceID)))
+	}
+	if err != nil {
+		_ = guard.Rollback()
+		if errors.Is(err, sql.ErrNoRows) {
+			err = ErrPrivateWorkspaceOperation
+		}
+		return nil, err
+	}
+	return guard, nil
 }
 
 func NewWorkspaceTransferRepository(db *sqlx.DB) *WorkspaceTransferRepository {

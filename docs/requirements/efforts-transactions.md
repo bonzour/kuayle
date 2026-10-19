@@ -1,6 +1,6 @@
 # Efforts — confine transazionale T-02
 
-Implementazione del 2026-10-17, branch `feature/efforts`.
+Implementazione T-02 del 2026-10-17; completamento V1 del 2026-10-20, branch `feature/efforts`.
 Base: contratti [T-01](efforts-contracts.md); attività [T-02](../backlog/efforts.md).
 
 ## Perimetro
@@ -9,7 +9,8 @@ Il repository espone comandi interni tipizzati `SetEstimate`, `SetRemaining`,
 `CreateWorklog`, `UpdateWorklog`, `DeleteWorklog` e `SetSettings`. Il service
 restituisce le ricevute T-01 e pubblica il refresh dopo il commit. T-02 non
 registrava route HTTP né funzioni client di mutazione; EP-01–03 le espongono ora
-alle sessioni interattive, riusando questi stessi comandi e garanzie.
+alle sessioni interattive e, per pianificazione/worklog, ai PAT con read+write
+Efforts, riusando questi stessi comandi e garanzie.
 
 Le chiusure esistenti sono già integrate: update singolo, bulk, triage,
 automazioni parent/figli e GitHub. Stato issue, trigger lifecycle, eventuale
@@ -19,9 +20,8 @@ il salvataggio. Lo storico generico preesistente rimane distinto e best effort;
 per update/triage il suo evento di stato è ora registrato dopo il salvataggio,
 così una chiusura fallita non lascia un falso evento di stato.
 
-US-18/19 devono ancora completare l'integrazione dei canali indiretti prima di
-esporre le scritture tramite PAT. Restano successive la proiezione degli eventi
-nell'attività, gli aggregati UI, il completamento generale del refresh e gli archivi.
+US-18/19 coprono anche duplicazione, eliminazione e trasferimento. Proiezione
+nell’attività, aggregati UI, refresh remoto e archivi sono ora operativi.
 Non è necessaria una nuova migrazione: T-02 usa le cinque tabelle della 47.
 
 ## Ordine dei lock
@@ -57,9 +57,10 @@ sul budget. Una revoca arrivata dopo l'acquisizione dei lock si serializza dopo
 il salvataggio. La data corrente viene calcolata dopo il lock budget con
 `clock_timestamp() AT TIME ZONE`, senza usare l'ora di inizio transazione.
 
-Le nuove garanzie passano dai repository applicativi. Scritture SQL dirette e il
-futuro import devono rispettare un proprio protocollo; la sola somma SQL non
-serializza i budget. Rimane vietato aggiornare la classificazione privacy dopo
+Le garanzie passano dai repository applicativi. L’import valida i budget prima
+dell’inserimento nel nuovo workspace, nella transazione di ripristino; non riusa
+i comandi interattivi e non duplica gli effetti. La sola somma SQL non
+serializza scritture SQL dirette. Rimane vietato aggiornare la classificazione privacy dopo
 scritture ordinarie nella stessa transazione, come previsto dalla migrazione 46.
 
 ## Revisioni, idempotenza ed errori
@@ -84,8 +85,8 @@ Una chiave riutilizzata con comando/contenuto diverso produce
 - `EFFORT_REVISION_CONFLICT`: rileggere lo stato, riallineare la bozza e usare
   un nuovo tentativo con la revisione corrente.
 - Errori di autorizzazione, disattivazione o validazione: correggere la causa;
-  nessuna ricevuta è stata consumata. I nuovi handler futuri dovranno mappare
-  `EffortError` sui codici HTTP/dettagli già definiti in T-01.
+  nessuna ricevuta è stata consumata. Gli handler mappano
+  `EffortError` sui codici HTTP/dettagli definiti nei contratti.
 
 La distinzione assente/zero si conserva anche nella prima lettura transazionale:
 una riga SQL assente restituisce esplicitamente uno snapshot vuoto, senza usare i
@@ -115,7 +116,8 @@ I PAT portano il limite degli scope anche nel context Go. Update/bulk con campi
 stato e rifiuto triage richiedono entrambi gli scope Efforts prima degli effetti,
 indipendentemente dai valori presenti. Il repository ripete il controllo per
 le effettive transizioni. Aggiornamenti ordinari senza transizione mantengono il
-contratto scope esistente. Questo adattamento non completa tutto US-19.
+contratto scope esistente. Duplicazione ed eliminazione singola/bulk richiedono
+read/write uniformemente, export richiede read oltre allo scope trasferimento.
 
 Il nuovo service emette soltanto `app.refresh` generico dopo il commit, senza
 worklog o ID issue; replay e rollback non emettono nuovi eventi. Le chiusure
@@ -153,3 +155,28 @@ Verifica conclusa il 2026-10-17 su PostgreSQL 17.11 locale:
   opt-in. Non sono prove Efforts e non attestano una loro esecuzione.
 - Installazioni nuove e upgrade/down della 47 sono coperti dai test migrazione
   T-01 eseguiti insieme alla suite. T-02 non modifica lo schema.
+
+## Duplicazione, eliminazione e archivi V1
+
+La duplicazione blocca configurazione, membership e issue sorgente nello stesso
+ordine delle mutazioni. Ricontrolla accesso e ruolo dopo l'attesa; crea issue e
+copia della sola pianificazione nella stessa transazione, prima del broadcast.
+Con Efforts attivo il residuo è la stima oppure assente; una copia chiusa ha zero.
+Con Efforts disabilitato la copia non riceve dati Efforts. La duplicazione dei
+figli conserva il perimetro del flusso preesistente.
+
+Eliminazione singola/bulk usa lo stesso ordine di lock e ricontrolla ruolo e
+creatore per i membri. I filtri di visibilità precedono gli effetti. Cascade
+rimuovono i dati propri; i figli conservati mantengono il loro lavoro. I dialoghi
+avvisano della perdita di worklog e storico anche da disabilitato.
+
+L'export mantiene il blocco già esistente per i workspace con team privati.
+Acquisisce prima il lock condiviso workspace privacy di sessione, poi apre uno
+snapshot REPEATABLE READ READ ONLY sulla stessa connessione. Tutte le letture
+usano questo snapshot; rollback, unlock e rilascio connessione sono garantiti
+anche sugli errori. Il solo lock privacy non sarebbe sufficiente alla coerenza
+tra tabelle. L'import v2 valida i dati e rimappa le identità (anche negli snapshot)
+prima del ripristino atomico; non trasferisce le ricevute e non riapplica effetti
+automatici. Il formato v1 privo di Efforts resta supportato.
+
+Verifica V1 e misure: [efforts-acceptance.md](efforts-acceptance.md).

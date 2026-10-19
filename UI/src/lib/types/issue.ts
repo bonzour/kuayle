@@ -105,9 +105,10 @@ export interface UpdateIssueRequest {
 }
 
 export interface IssueHistory {
+ effort?: import('./efforts').EffortEvent;
 	id: string;
 	issue_id: string;
-	user_id: string;
+	user_id?: string;
 	field: string;
 	old_value: string | null;
 	new_value: string | null;

@@ -745,3 +745,14 @@ func TestIssueService_GetHistory(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, result, 1)
 }
+
+func (m *mockIssueRepo) BeginDuplicateTx(ctx context.Context, ws, source uuid.UUID) (*sqlx.Tx, error) {
+	args := m.Called(ctx, ws, source)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*sqlx.Tx), args.Error(1)
+}
+func (m *mockIssueRepo) CopyEffortPlanning(ctx context.Context, tx *sqlx.Tx, source uuid.UUID, issue *domain.Issue) error {
+	return m.Called(ctx, tx, source, issue).Error(0)
+}

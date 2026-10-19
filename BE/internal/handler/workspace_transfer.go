@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
@@ -33,6 +34,9 @@ func (h *WorkspaceTransferHandler) Export(c echo.Context) error {
 	}
 	archive, err := h.service.Export(c.Request().Context(), workspace, middleware.GetUserID(c))
 	if err != nil {
+		if errors.Is(err, domain.ErrEffortForbidden) {
+			return response.Forbidden(c)
+		}
 		var transferErr *service.WorkspaceTransferError
 		if errors.As(err, &transferErr) {
 			return transferHTTPError(c, err)

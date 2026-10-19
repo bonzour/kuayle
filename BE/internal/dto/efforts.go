@@ -27,7 +27,7 @@ const (
 	EffortDisabled         = "EFFORT_DISABLED"
 )
 
-// Direct Efforts writes use session-only routes.
+// Direct issue writes require a session or explicit read/write Efforts scopes.
 type EffortMutationRequest struct {
 	RequestID        string `json:"request_id" validate:"required,uuid"`
 	ExpectedRevision *int64 `json:"expected_revision" validate:"required,min=0,max=9007199254740991"`

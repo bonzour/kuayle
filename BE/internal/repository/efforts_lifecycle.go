@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -50,4 +51,48 @@ func lockEffortAssignmentIssue(ctx context.Context, tx *sqlx.Tx, issueID uuid.UU
 
 func sameStatus(a, b *domain.Issue) bool {
 	return a.Status == b.Status && (a.StatusID == nil && b.StatusID == nil || a.StatusID != nil && b.StatusID != nil && *a.StatusID == *b.StatusID)
+}
+
+// Hold settings, current membership and source planning until the copy commits.
+func (r *IssueRepository) BeginDuplicateTx(ctx context.Context, ws, source uuid.UUID) (*sqlx.Tx, error) {
+	if err := domain.CheckEffortToken(ctx); err != nil {
+		return nil, err
+	}
+	tx, issues, err := beginEffortIssueWrite(ctx, r.db, ws, []uuid.UUID{source}, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(issues) != 1 {
+		_ = tx.Rollback()
+		return nil, sql.ErrNoRows
+	}
+	if err = requireVisible(ctx, tx, effortWorkspaceVisible(ctx, uuidSQL(ws))+" AND "+issueVisible(ctx, uuidSQL(source))); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	return tx, nil
+}
+
+func (r *IssueRepository) CopyEffortPlanning(ctx context.Context, tx *sqlx.Tx, source uuid.UUID, issue *domain.Issue) error {
+	settings, err := effortSettingsTx(ctx, tx, issue.WorkspaceID)
+	if err != nil || !settings.Enabled {
+		return err
+	}
+	planning, _, err := effortPlanningTx(ctx, tx, issue.WorkspaceID, source)
+	if err != nil {
+		return err
+	}
+	planning.RemainingMinutes = planning.EstimateMinutes
+	terminal, err := effortTerminal(ctx, tx, issue)
+	if err != nil {
+		return err
+	}
+	if terminal {
+		zero := int64(0)
+		planning.RemainingMinutes = &zero
+	}
+	if planning.EstimateMinutes == nil && planning.RemainingMinutes == nil {
+		return nil
+	}
+	return saveEffortPlanning(ctx, tx, issue.WorkspaceID, issue.ID, planning, 1)
 }

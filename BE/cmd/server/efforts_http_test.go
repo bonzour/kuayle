@@ -150,7 +150,11 @@ func TestEffortsHTTP(t *testing.T) {
 		if strings.Contains(route.Path, "/efforts") {
 			if route.Method != http.MethodGet {
 				require.Contains(t, []string{http.MethodPost, http.MethodPut, http.MethodDelete}, route.Method)
-				require.Equal(t, "session", route.Name)
+				if strings.HasSuffix(route.Path, "/settings") {
+					require.Equal(t, "session", route.Name)
+				} else {
+					require.Equal(t, "perm:efforts:write", route.Name)
+				}
 			}
 		}
 	}
