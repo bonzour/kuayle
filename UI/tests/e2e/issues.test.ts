@@ -23,6 +23,7 @@ test('loads more on scroll without duplicating the initial request', async ({ pa
 	await page.route('**/api/**', async (route) => {
 		const requestUrl = new URL(route.request().url());
 		const path = requestUrl.pathname;
+		if (path.endsWith('/efforts/settings')) return route.fulfill({ json: { enabled: true, timezone: 'Europe/Rome', revision: 0, today: '2026-10-17' } });
 		if (!path.startsWith('/api/')) return route.continue();
 
 		if (path === '/api/auth/me') {

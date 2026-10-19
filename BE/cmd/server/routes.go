@@ -185,9 +185,12 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodPost, "/issues/:identifier/sub-issues", h.issue.CreateSubIssue, "issue:create")
 	scoped(ws, http.MethodPost, "/issues/:identifier/sub-issues/bulk", h.issue.BulkCreateSubIssues, "issue:create")
 	scoped(ws, http.MethodGet, "/issues/:identifier/history", h.issue.GetHistory, "issues:read")
-	// Efforts writes remain internal until US-18/19 cover all access paths.
+	// Planning writes are session-only; PAT writes and worklogs remain separate.
 	scoped(ws, http.MethodGet, "/efforts/settings", h.effort.Settings, "efforts:read")
+	sessionOnly(ws, http.MethodPut, "/efforts/settings", h.effort.SetSettings)
 	scoped(ws, http.MethodGet, "/issues/:identifier/efforts", h.effort.Summary, "efforts:read")
+	sessionOnly(ws, http.MethodPut, "/issues/:identifier/efforts/estimate", h.effort.SetEstimate)
+	sessionOnly(ws, http.MethodPut, "/issues/:identifier/efforts/remaining", h.effort.SetRemaining)
 	scoped(ws, http.MethodGet, "/issues/:identifier/efforts/worklogs", h.effort.Worklogs, "efforts:read")
 	scoped(ws, http.MethodPost, "/issues/:identifier/triage/accept", h.issue.TriageAccept, "issue:update")
 	scoped(ws, http.MethodPost, "/issues/:identifier/triage/decline", h.issue.TriageDecline, "issue:update")

@@ -82,6 +82,8 @@ async function mockWorkspace(page: Page) {
 	await page.route('**/api/**', async (route) => {
 		const url = new URL(route.request().url());
 		const path = url.pathname;
+		if (/\/issues\/[^/]+\/efforts$/.test(path)) return route.fulfill({ json: { revision: 0, own: { estimate_minutes: null, spent_minutes: 0, remaining_minutes: null }, total: { estimate_minutes: null, spent_minutes: 0, remaining_minutes: 0, estimate_partial: true, remaining_partial: true } } });
+		if (path.endsWith('/efforts/settings')) return route.fulfill({ json: { enabled: true, timezone: 'Europe/Rome', revision: 0, today: '2026-10-17' } });
 		if (workspaceRevoked && path === '/api/workspaces/test') return route.fulfill({status:403,json:{error:{message:'Access removed'}}});
 		if (workspaceRevoked && path === '/api/workspaces') return route.fulfill({json:[]});
 		if (!path.startsWith('/api/')) return route.continue();

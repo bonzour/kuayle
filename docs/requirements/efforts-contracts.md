@@ -6,12 +6,14 @@ Attività: [T-01](../backlog/efforts.md).
 
 Aggiornamento T-02 del 2026-10-17: i comandi interni, i lock e le chiusure sono
 implementati e verificati in [efforts-transactions.md](efforts-transactions.md).
-Le nuove API di scrittura Efforts rimangono non esposte.
+Aggiornamento EP-01: la configurazione è esposta tramite `PUT /efforts/settings`,
+riservata alle sessioni owner/admin. Aggiornamento EP-02 del 2026-10-19: stima e
+residuo sono esposti alle sessioni autorizzate; i comandi worklog restano interni.
 
 Questo documento distingue i contratti implementati dalle scritture future.
 T-01 introduce migrazione 47, modelli e API di lettura; non completa T-02,
 le policy di scrittura US-18/19, l'attività US-21 o il trasferimento US-24/25.
-Non espone endpoint Efforts di scrittura, né aggiunge Efforts ai DTO generici
+T-01 non espone endpoint Efforts di scrittura, né aggiunge Efforts ai DTO generici
 delle issue, ai DTO pubblici o ai template.
 
 ## 1. Persistenza
@@ -65,9 +67,13 @@ Disabilitare Efforts non blocca queste letture.
 
 | Metodo e route | Risposta |
 | --- | --- |
-| `GET /efforts/settings` | `{"enabled":true,"timezone":"Europe/Rome","revision":0}` |
+| `GET /efforts/settings` | `{"enabled":true,"timezone":"Europe/Rome","revision":0,"today":"2026-10-17"}` |
 | `GET /issues/:identifier/efforts` | Valori propri e aggregati autorizzati. |
 | `GET /issues/:identifier/efforts/worklogs?page=1&per_page=50` | `ListResponse<EffortWorklog>` comune. |
+
+`today` è una proiezione, non un'impostazione persistita: PostgreSQL la calcola
+nello stesso statement usando il fuso del workspace e l'istante corrente.
+Non dipende dal fuso del server/browser e non converte le date dei worklog.
 
 Issue senza dati:
 
@@ -134,9 +140,9 @@ cambiare durante modifiche concorrenti e il client dovrà ricaricarle con US-23.
 
 ## 3. Contratti di scrittura e comandi interni
 
-Sono definiti DTO Go/TypeScript e comandi transazionali interni T-02, ma nessuna
-route o funzione client di mutazione. L'esposizione dei seguenti contratti richiede
-il completamento delle policy sui canali US-18/19:
+Sono definiti DTO Go/TypeScript e comandi transazionali T-02. EP-01 espone la
+configurazione ed EP-02 la pianificazione tramite sessione. I comandi worklog
+restano interni; il supporto PAT per le scritture dirette resta a US-19:
 
 | Comando | Campi oltre all'involucro comune |
 | --- | --- |
@@ -146,6 +152,90 @@ il completamento delle policy sui canali US-18/19:
 | `UpdateEffortWorklogRequest` | Data, durata e descrizione desiderate; nessun titolare modificabile. |
 | `DeleteEffortWorklogRequest` | Solo involucro comune. |
 | `SetEffortSettingsRequest` | Configurazione completa: `enabled`, `timezone`; solo sessione owner/admin. |
+
+### Configurazione EP-01
+
+`PUT /api/workspaces/:slug/efforts/settings` riceve la configurazione completa:
+
+```json
+{
+  "request_id": "40000000-0000-0000-0000-000000000001",
+  "expected_revision": 0,
+  "enabled": false,
+  "timezone": "Europe/Rome"
+}
+```
+
+Risposta 200: `EffortMutationReceipt` con `resource_id` uguale all'UUID workspace.
+Sessioni owner/admin possono salvare anche da disabilitato; membri, guest e PAT
+sono esclusi. Ruolo e membership sono ricontrollati nella transazione. JSON
+malformato, campi ignoti e valori invalidi sono rifiutati; i dettagli di validazione
+indicano il campo, incluso `timezone`. Si applicano i codici 400/409 sotto descritti.
+
+Disabilitare conserva i dati; riattivare azzera soltanto i residui delle issue
+attualmente chiuse, con eventi `remaining_set`, causa `reactivation` e operatore.
+Storico, residui, impostazioni e ricevuta sono atomici. I replay non rieseguono
+la riattivazione e devono ancora superare i permessi correnti. Dopo un nuovo commit
+il Hub pubblica `app.refresh` per `workspace` e `issues`, senza dati delle issue;
+rollback e replay non pubblicano. Nei workspace privati resta il refresh generico.
+
+Le Impostazioni generali mostrano la configurazione a tutti i membri autorizzati,
+con modifica limitata a owner/admin. Il client conserva bozza e payload del retry;
+un conflitto richiede la sostituzione esplicita della bozza con i valori correnti.
+Il valore `today` è disponibile ai futuri moduli worklog di US-06; EP-01 non li crea.
+
+### Pianificazione EP-02
+
+Le due route sono riservate alle sessioni utente; qualsiasi PAT è rifiutato,
+anche se possiede tutti gli scope Efforts. Prefisso comune:
+`/api/workspaces/:slug/issues/:identifier/efforts`.
+
+| Metodo e route | Campi oltre a `request_id` e `expected_revision` |
+| --- | --- |
+| `PUT /estimate` | `estimate_minutes`: intero da 0 a 2.147.483.647, oppure `null` esplicito per rimuovere la stima. |
+| `PUT /remaining` | `remaining_minutes`: intero obbligatorio da 0 a 2.147.483.647; `null` non è ammesso. |
+
+L'identificativo è risolto nel workspace prima del comando. Accesso, ruolo,
+assegnazioni primarie/multiple, attivazione e revisione sono ricontrollati nella
+transazione. Owner/admin con accesso e membri assegnatari possono scrivere;
+guest e membri non assegnatari sono esclusi. Una destinazione non accessibile o
+appartenente a un altro workspace restituisce 404. JSON malformato, campi ignoti,
+campi obbligatori assenti, frazioni e valori fuori limite restituiscono 400.
+La risposta 200 è `EffortMutationReceipt`, con `resource_id` uguale all'UUID issue.
+
+Su issue aperta, una stima non nulla inizializza soltanto il residuo assente a
+`max(stima - consuntivo, 0)`. Revisione/rimozione della stima preservano un residuo
+già impostato, incluso zero; stima e residuo non cambiano i worklog. Sulle issue
+concluse/annullate il residuo resta zero e ogni nuovo comando manuale sul residuo
+è rifiutato, anche se propone zero. Riaprire non ripristina il valore precedente.
+Un replay già committato restituisce la ricevuta dopo i controlli correnti di
+accesso e attribuzione, senza rieseguire la modifica.
+
+Pianificazione, eventi prima/dopo e ricevuta sono atomici. Si riusano i codici
+400/409 descritti sotto e il refresh generico post-commit per `issues`; rollback
+e replay non pubblicano. Nessun arricchimento dei DTO generici o pubblici.
+
+Pagina completa e pannello nei progetti condividono la sezione richiudibile
+«Effort», con tre righe stima/consuntivo/residuo nello stesso formato di DETAILS,
+senza icone nei valori. In pagina è accodata sotto PROJECTS. Stima e residuo si
+modificano inline e si salvano su Invio o all'uscita; Esc
+annulla la modifica. Non sono presenti pulsanti Salva. Il consuntivo proprio
+resta in sola lettura. Le due scritture usano la revisione comune dell'issue.
+Stima assente è «Non stimato»; residuo assente è
+visualizzato zero con «Non impostato», distinto dallo zero esplicito. Rimozione
+della stima è un comando separato, non un campo vuoto.
+L'input accetta interi senza unità (minuti), `90m`, `2h`, `1h 30m` e `1h30m`,
+ignorando spazi esterni e maiuscole delle unità. Rifiuta decimali, segni, giorni,
+settimane, unità duplicate e overflow, senza arrotondamento.
+Errori conservano la bozza; un 404 è segnalato come indisponibilità, distinto dal
+rifiuto dei permessi (403). Il caricamento del ruolo non implica un rifiuto.
+Retry incerti conservano payload e chiave. Conflitti
+richiedono il riallineamento esplicito. Letture tardive non possono sovrascrivere
+una lettura più recente o i dati di un'altra issue/workspace/persona.
+Lo storico è persistito; la sua visualizzazione resta a US-21. Aggregati e registro
+worklog restano alle storie EP-05. Non sono necessarie nuove migrazioni.
+
+### Comandi sulle issue e garanzie comuni
 
 Esempio di creazione:
 

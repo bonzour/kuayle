@@ -2,25 +2,98 @@ package handler
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
 )
 
-type EffortHandler struct{ svc *service.EffortService }
+type EffortHandler struct {
+	svc    *service.EffortService
+	issues repository.IssueRepo
+}
 
-func NewEffortHandler(svc *service.EffortService) *EffortHandler { return &EffortHandler{svc: svc} }
+func NewEffortHandler(svc *service.EffortService, issues repository.IssueRepo) *EffortHandler {
+	return &EffortHandler{svc: svc, issues: issues}
+}
+
+func decodeEffortCommand(c echo.Context, req any) error {
+	decoder := json.NewDecoder(c.Request().Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(req); err != nil {
+		return err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return errors.New("expected a single JSON object")
+	}
+	return nil
+}
+
+func (h *EffortHandler) SetEstimate(c echo.Context) error {
+	return h.setPlanning(c, true)
+}
+
+func (h *EffortHandler) SetRemaining(c echo.Context) error {
+	return h.setPlanning(c, false)
+}
+
+func (h *EffortHandler) setPlanning(c echo.Context, estimate bool) error {
+	if domain.IsToken(c.Request().Context()) || c.Get(middleware.TokenScopesKey) != nil {
+		return response.Forbidden(c)
+	}
+	var estimateReq dto.SetEffortEstimateRequest
+	var remainingReq dto.SetEffortRemainingRequest
+	var req any = &remainingReq
+	if estimate {
+		req = &estimateReq
+	}
+	if err := decodeEffortCommand(c, req); err != nil {
+		return response.ValidationError(c, []dto.ErrorDetail{{Field: "body", Message: "invalid Efforts JSON"}})
+	}
+	ws := c.Get("workspace").(*domain.Workspace)
+	ctx := c.Request().Context()
+	issue, err := h.issues.GetByIdentifier(ctx, ws.ID, c.Param("identifier"))
+	if err != nil {
+		return effortResponse(c, nil, err)
+	}
+	if issue == nil {
+		return response.NotFound(c, "Efforts")
+	}
+	if estimate {
+		result, err := h.svc.SetEstimate(ctx, ws.ID, issue.ID, estimateReq)
+		return effortResponse(c, result, err)
+	}
+	result, err := h.svc.SetRemaining(ctx, ws.ID, issue.ID, remainingReq)
+	return effortResponse(c, result, err)
+}
 
 func (h *EffortHandler) Settings(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	result, err := h.svc.Settings(c.Request().Context(), ws.ID)
+	return effortResponse(c, result, err)
+}
+
+func (h *EffortHandler) SetSettings(c echo.Context) error {
+	role := middleware.GetWorkspaceRole(c)
+	if domain.IsToken(c.Request().Context()) || c.Get(middleware.TokenScopesKey) != nil || role != domain.RoleOwner && role != domain.RoleAdmin {
+		return response.Forbidden(c)
+	}
+	var req dto.SetEffortSettingsRequest
+	if err := decodeEffortCommand(c, &req); err != nil {
+		return response.ValidationError(c, []dto.ErrorDetail{{Field: "body", Message: "invalid settings JSON"}})
+	}
+	ws := c.Get("workspace").(*domain.Workspace)
+	result, err := h.svc.SetSettings(c.Request().Context(), ws.ID, req)
 	return effortResponse(c, result, err)
 }
 
@@ -48,11 +121,21 @@ func (h *EffortHandler) Worklogs(c echo.Context) error {
 }
 
 func effortResponse(c echo.Context, result any, err error) error {
+	if errors.Is(err, domain.ErrEffortForbidden) {
+		return response.Forbidden(c)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return response.NotFound(c, "Efforts")
 	}
+	var commandError *repository.EffortError
+	if errors.As(err, &commandError) {
+		if commandError.Code == "VALIDATION_ERROR" {
+			return response.ValidationError(c, []dto.ErrorDetail{{Field: commandError.Field, Message: commandError.Message}})
+		}
+		return response.Error(c, http.StatusConflict, commandError.Code, commandError.Message)
+	}
 	if err != nil {
-		log.WithError(err).Error("Efforts read failed")
+		log.WithError(err).Error("Efforts operation failed")
 		return response.InternalError(c)
 	}
 	return response.Success(c, http.StatusOK, result)

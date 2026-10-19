@@ -7,7 +7,10 @@ import (
 )
 
 // Read projections deliberately stay out of generic and public issue DTOs.
-type EffortSettingsResponse = domain.EffortSettings
+type EffortSettingsResponse struct {
+	domain.EffortSettings
+	Today domain.EffortDate `json:"today" db:"today"`
+}
 type EffortSummaryResponse = domain.EffortSummary
 type EffortWorklogResponse = domain.EffortWorklog
 
@@ -18,7 +21,7 @@ const (
 	EffortDisabled         = "EFFORT_DISABLED"
 )
 
-// Internal command contracts; HTTP mutations remain unregistered.
+// Planning and configuration use session-only routes; worklogs remain internal.
 type EffortMutationRequest struct {
 	RequestID        string `json:"request_id" validate:"required,uuid"`
 	ExpectedRevision *int64 `json:"expected_revision" validate:"required,min=0,max=9007199254740991"`

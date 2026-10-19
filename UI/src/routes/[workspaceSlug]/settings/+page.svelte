@@ -11,6 +11,7 @@
 	import * as Select from '$lib/components/ui/select';
 	import { Trash2, Download, Loader2 } from 'lucide-svelte';
 	import WorkspaceImportDialog from '$lib/features/workspaces/WorkspaceImportDialog.svelte';
+	import EffortSettings from '$lib/features/workspaces/EffortSettings.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -227,6 +228,10 @@
 				{m['settings.general.only_owner_edit']()}
 			</p>
 		{/if}
+
+		{#key `${slug}:${authState.user?.id}`}
+			<EffortSettings {slug} />
+		{/key}
 
 		{#if canTransfer}
 			<div class="mt-10">

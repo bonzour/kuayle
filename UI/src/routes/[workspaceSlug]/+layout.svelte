@@ -138,6 +138,7 @@
 			if (ws && workspaceSlug === slug) {
 				if (workspace && workspace.privacy_enabled !== ws.privacy_enabled) invalidateContent();
 				workspace = ws;
+				await currentWorkspace.loadEfforts(workspaceSlug);
 			}
 		} catch (error) {
 			// Only an authoritative denial means access is gone. Transient server or
@@ -146,6 +147,7 @@
 			if (status !== 401 && status !== 403 && status !== 404) return;
 			if (workspaceSlug === slug && !currentWorkspace.membership) {
 				workspace = null;
+				currentWorkspace.clearEfforts();
 				applyTeams([]);
 				applyProjects([]);
 				invalidateContent();
@@ -197,6 +199,7 @@
 	$effect(() => {
 		if (authReady && slug && slug !== loadedSlug) {
 			loadedSlug = slug;
+			currentWorkspace.clearEfforts();
 			teamsReady = false; projectsReady = false;
 			invalidateContent();
 			showCreateTeam = false;
@@ -407,6 +410,7 @@
 		wsDestroyed = true;
 		membershipLoadId++;
 		currentWorkspace.membership = null;
+		currentWorkspace.clearEfforts();
 		clearWebSocketReconnect();
 		ws_conn?.close();
 		window.removeEventListener('ws:send', handleWSSend as EventListener);
@@ -454,6 +458,7 @@
 			if (event.code === 1008) {
 				workspace = null;
 				currentWorkspace.membership = null;
+				currentWorkspace.clearEfforts();
 				applyTeams([]); applyProjects([]); invalidateContent();
 			}
 			// Proxies can turn a policy close into an abnormal disconnect. Check

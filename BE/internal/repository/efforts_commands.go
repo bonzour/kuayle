@@ -317,8 +317,8 @@ func (r *EffortRepository) mutate(ctx context.Context, ws uuid.UUID, c effortCom
 				after.RemainingMinutes = &remaining
 			}
 		case "remaining_set":
-			if terminal && *c.remaining != 0 {
-				return nil, effortError("VALIDATION_ERROR", "remaining_minutes", "closed issues require zero remaining minutes")
+			if terminal {
+				return nil, effortError("VALIDATION_ERROR", "remaining_minutes", "remaining effort cannot be edited on closed issues")
 			}
 			after.RemainingMinutes = c.remaining
 		default:

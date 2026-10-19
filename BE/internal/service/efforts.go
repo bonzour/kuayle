@@ -36,12 +36,15 @@ func (s *EffortService) Worklogs(ctx context.Context, workspaceID uuid.UUID, ide
 }
 
 // Replays return the previous receipt without publishing another mutation.
-func (s *EffortService) committed(ws uuid.UUID, result *repository.EffortMutationResult, err error) (*dto.EffortMutationReceipt, error) {
+func (s *EffortService) committed(ws uuid.UUID, result *repository.EffortMutationResult, err error, resources ...string) (*dto.EffortMutationReceipt, error) {
 	if err != nil {
 		return nil, err
 	}
 	if !result.Replay && s.hub != nil {
-		s.hub.Broadcast(ws, realtime.Event{Type: "app.refresh", Payload: map[string]any{"resources": []string{"issues"}, "source": "efforts"}})
+		if len(resources) == 0 {
+			resources = []string{"issues"}
+		}
+		s.hub.Broadcast(ws, realtime.Event{Type: "app.refresh", Payload: map[string]any{"resources": resources, "source": "efforts"}})
 	}
 	return &result.Receipt, nil
 }
@@ -73,5 +76,5 @@ func (s *EffortService) DeleteWorklog(ctx context.Context, ws, issue, worklog uu
 
 func (s *EffortService) SetSettings(ctx context.Context, ws uuid.UUID, req dto.SetEffortSettingsRequest) (*dto.EffortMutationReceipt, error) {
 	result, err := s.repo.SetSettings(ctx, ws, req)
-	return s.committed(ws, result, err)
+	return s.committed(ws, result, err, "workspace", "issues")
 }

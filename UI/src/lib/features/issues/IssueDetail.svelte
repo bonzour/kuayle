@@ -19,6 +19,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import { mentionInteractivity } from '$lib/components/shared/mention/mention-interactivity.action';
 	import HistoryAssignees from './HistoryAssignees.svelte';
+	import EffortPlanning from './EffortPlanning.svelte';
 
 	let {
 		issue,
@@ -204,6 +205,8 @@
 					</PrioritySelector>
 				</div>
 			</div>
+
+			<div class="mt-6"><EffortPlanning {issue} {slug} /></div>
 
 			<!-- Tabs -->
 			<div class="mt-8 flex gap-4 border-b border-[var(--app-border)]">

@@ -1,7 +1,8 @@
 # Efforts — Epic e User Story per il backlog
 
 Data: 2026-10-16. Base: `918cc47`, branch `feature/efforts`.
-Stato: **T-01 e T-02 completati il 2026-10-17**; tutti gli altri elementi sono
+Stato: **T-01, T-02 ed EP-01 (US-01–03) completati il 2026-10-17**;
+**EP-02 (US-04–05) completata il 2026-10-19**. Gli altri elementi sono
 **Proposti — da raffinare e stimare**.
 
 Fonte: [requisiti Efforts](../requirements/efforts.md).
@@ -118,10 +119,40 @@ storia. **Dipendenze:** US-01–US-25 completate per la chiusura dell'attività.
 
 ### EP-01 — Configurazione e disponibilità nel workspace
 
+**Stato:** completata il 2026-10-17 nel perimetro concordato: US-01–03 e le sole
+dipendenze di autorizzazione/storico necessarie alla configurazione. US-18/19/21
+restano separate. Contratto API e UI: [efforts-contracts.md](../requirements/efforts-contracts.md#configurazione-ep-01).
+
 **Risultato:** owner/admin governano Efforts; gli utenti conservano i dati anche
 quando la funzione viene disabilitata. **Storie:** US-01–03.
 
+**Realizzato e verificato:** default lazy già presenti, PUT di configurazione
+session-only owner/admin, validazione IANA, idempotenza e revisioni, riattivazione
+atomica con storico, refresh post-commit e controlli nelle Impostazioni generali.
+La lettura espone `today` nel fuso workspace per i futuri moduli US-06, senza
+anticipare registro e form worklog. Traduzioni nelle quattro lingue del progetto.
+
+**Verifiche:** suite Go delle aree domain/repository/service/handler/server e
+migrazioni con PostgreSQL e `-race`; test specifici su default persistenti,
+permessi/PAT, revoche concorrenti, congelamento di tutte le scritture dirette,
+riattivazione/rollback, fusi e ora legale. Passano 35 unit test UI con Node 22.23
+(inclusi quattro
+casi di risposte tardive/cambio workspace o utente) e gli otto E2E dedicati a EP-01.
+La selezione estesa di 39 E2E passa, incluse le regressioni su issue, team privati,
+preferenze, token, trasferimento workspace e dev machine. Corretto il collegamento
+già mancante all'etichetta dello scope Efforts nel dialog token.
+Controllo Svelte senza errori (un avviso preesistente sulle scorciatoie); build di
+produzione verificato.
+
+**Riesame del 2026-10-19:** confrontati codice e criteri di US-01–03; nessuna
+ulteriore integrazione funzionale necessaria. Rieseguiti con esito positivo i test
+Efforts Go di domain, DTO, repository, service, handler, server e migrazioni con
+PostgreSQL e `-race`, i 35 unit test UI, il controllo Svelte e gli 8 E2E dedicati
+con build di produzione. Resta l'avviso Svelte preesistente sulle scorciatoie.
+
 #### US-01 — Disponibilità predefinita nei workspace
+
+**Stato:** completata nell'ambito EP-01.
 
 **Storia:** come utente di un workspace, voglio trovare Efforts disponibile al
 rilascio e nei nuovi workspace, per poterlo usare senza attivazioni tecniche.
@@ -140,6 +171,8 @@ rilascio e nei nuovi workspace, per poterlo usare senza attivazioni tecniche.
 nei DTO e nello stato UI; prova su dati preesistenti e creazione successiva.
 
 #### US-02 — Disabilitare e riattivare Efforts preservando i dati
+
+**Stato:** completata nell'ambito EP-01.
 
 **Storia:** come owner/admin, voglio sospendere e riattivare Efforts per l'intero
 workspace, per governarne l'utilizzo senza perdere il lavoro storico.
@@ -166,6 +199,9 @@ comandi UI e aggiornamento delle sessioni. Verificare concorrenza con US-11/22.
 
 #### US-03 — Configurare il fuso senza spostare il lavoro storico
 
+**Stato:** completata nell'ambito EP-01; il valore proposto ai futuri form US-06
+è fornito da `today` nella lettura della configurazione.
+
 **Storia:** come owner/admin, voglio scegliere il fuso del workspace, per applicare
 la data corrente del contesto di lavoro senza alterare le registrazioni passate.
 
@@ -187,10 +223,44 @@ componenti e traduzioni UI; test ai confini del giorno e dell'ora legale.
 
 ### EP-02 — Pianificazione dell'effort proprio della issue
 
+**Stato:** completata il 2026-10-19 nel perimetro concordato: US-04–05 con API
+riservate alle sessioni utente e storico persistito atomicamente. Le dipendenze
+US-18/21 sono coperte per questi comandi; il loro completamento generale resta
+separato. Supporto PAT e visualizzazione dello storico restano a US-19 e US-21.
+Contratti: [pianificazione EP-02](../requirements/efforts-contracts.md#pianificazione-ep-02).
+
+**Realizzato:** PUT separati per stima e residuo, permessi correnti con assegnazione
+multipla, distinzione assente/zero, inizializzazione del solo residuo assente,
+blocco di ogni nuovo comando manuale sul residuo delle issue chiuse, anche zero.
+Campi condivisi in pagina e pannello dei progetti, consuntivo proprio in sola
+lettura, rimozione esplicita della stima e input ore/minuti senza arrotondamenti.
+Bozze e chiavi dei retry sono conservate; i conflitti richiedono riallineamento.
+Refresh e risposte tardive sono gestiti per issue/workspace/utente. Traduzioni
+nelle quattro lingue, senza nuove migrazioni.
+
+**Verifiche:** test Efforts Go di domain/DTO/repository/service/handler/server e
+migrazioni con PostgreSQL e `-race`, inclusi i nuovi test di pianificazione HTTP,
+rollback di storico/ricevuta e chiusura concorrente. Passano 37 unit test UI,
+15 E2E dedicati a EP-02 e la selezione di 32 E2E con EP-01, navigazione e team
+privati. Controllo Svelte senza errori (l'avviso preesistente sulle scorciatoie
+resta) e build di produzione verificata.
+
+**Aggiornamento UI:** la sezione si chiama «Effort» ed è accodata sotto PROJECTS
+nella pagina completa. Intestazione richiudibile e tre righe stima/consuntivo/residuo
+replicano DETAILS/Priority senza icone nei valori. Stima e residuo si modificano
+inline con salvataggio su Invio o uscita, annullamento con Esc e nessun
+pulsante Salva. Il consuntivo resta in sola lettura; retry e conflitti mantengono
+le garanzie precedenti. Verificati anche posizione sotto PROJECTS, assenza di
+Salva/icone, autosalvataggio e annullamento da tastiera nelle due viste.
+I 404 di salvataggio sono distinti dai rifiuti 403; durante il caricamento del
+ruolo non compare un falso rifiuto. Owner/admin non richiedono assegnazione.
+
 **Risultato:** gli utenti autorizzati distinguono previsione, lavoro svolto e
 lavoro ancora necessario. **Storie:** US-04–05.
 
 #### US-04 — Impostare, rivedere e rimuovere la stima
+
+**Stato:** completata nell'ambito EP-02, con i limiti di canale e storico sopra indicati.
 
 **Storia:** come assegnatario non guest o owner/admin, voglio gestire una stima
 facoltativa, per pianificare l'issue anche dopo che è iniziato il lavoro.
@@ -214,6 +284,8 @@ facoltativa, per pianificare l'issue anche dopo che è iniziato il lavoro.
 storico; input durata condiviso e controllo integrabile nel riepilogo US-15.
 
 #### US-05 — Correggere manualmente il residuo
+
+**Stato:** completata nell'ambito EP-02, con i limiti di canale e storico sopra indicati.
 
 **Storia:** come assegnatario non guest o owner/admin, voglio correggere il lavoro
 residuo, per aggiornare la previsione senza alterare stima o consuntivo.

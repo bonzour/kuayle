@@ -138,7 +138,7 @@ func TestEffortsHTTP(t *testing.T) {
 	issueService := service.NewIssueService(issues, teams, statuses, repository.NewIssueHistoryRepository(db), hub, notifications, projects)
 	shared := service.NewSharedLinkService(repository.NewSharedLinkRepository(db), workspaces, teams, projects, repository.NewViewRepository(db), issues, users, statuses, "effort-http-test-secret")
 	h := &appHandlers{
-		effort:     handler.NewEffortHandler(service.NewEffortService(repo)),
+		effort:     handler.NewEffortHandler(service.NewEffortService(repo), issues),
 		issue:      handler.NewIssueHandler(issueService, service.NewCommentService(repository.NewCommentRepository(db), issues, hub, notifications), users, statuses, projects, cycles, service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issues)),
 		sharedLink: handler.NewSharedLinkHandler(shared, "http://example.test"),
 	}
@@ -148,7 +148,11 @@ func TestEffortsHTTP(t *testing.T) {
 	registerRoutes(e, h, middleware)
 	for _, route := range e.Routes() {
 		if strings.Contains(route.Path, "/efforts") {
-			require.Equal(t, "GET", route.Method, "no Efforts mutation routes in T-01")
+			if route.Method != http.MethodGet {
+				require.Equal(t, http.MethodPut, route.Method)
+				require.Contains(t, []string{"/api/workspaces/:slug/efforts/settings", "/api/workspaces/:slug/issues/:identifier/efforts/estimate", "/api/workspaces/:slug/issues/:identifier/efforts/remaining"}, route.Path)
+				require.Equal(t, "session", route.Name)
+			}
 		}
 	}
 	server := httptest.NewServer(e)

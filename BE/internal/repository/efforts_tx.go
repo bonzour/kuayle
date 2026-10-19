@@ -27,7 +27,7 @@ type EffortError struct {
 func (e *EffortError) Error() string                { return e.Message }
 func effortError(code, field, message string) error { return &EffortError{code, field, message} }
 
-// EffortMutationResult is internal: HTTP write routes are intentionally absent.
+// EffortMutationResult keeps replay metadata internal to post-commit publication.
 type EffortMutationResult struct {
 	Receipt dto.EffortMutationReceipt
 	Replay  bool

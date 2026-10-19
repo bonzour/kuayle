@@ -51,7 +51,7 @@ func TestEffortsT02HTTPAndRealtime(t *testing.T) {
 	efforts := service.NewEffortService(repo, hub)
 	notifications := service.NewNotificationService(repository.NewNotificationRepository(db))
 	issueService := service.NewIssueService(issues, teams, statuses, repository.NewIssueHistoryRepository(db), hub, notifications, projects)
-	h := &appHandlers{effort: handler.NewEffortHandler(efforts), issue: handler.NewIssueHandler(issueService, service.NewCommentService(repository.NewCommentRepository(db), issues, hub, notifications), users, statuses, projects, cycles, service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issues))}
+	h := &appHandlers{effort: handler.NewEffortHandler(efforts, issues), issue: handler.NewIssueHandler(issueService, service.NewCommentService(repository.NewCommentRepository(db), issues, hub, notifications), users, statuses, projects, cycles, service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issues))}
 	secret := "efforts-t02-http-secret"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
 	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces)
@@ -135,8 +135,9 @@ func TestEffortsT02HTTPAndRealtime(t *testing.T) {
 		require.Zero(t, value)
 	}
 	for _, route := range e.Routes() {
-		if strings.Contains(route.Path, "/efforts") {
-			require.Equal(t, "GET", route.Method)
+		if strings.Contains(route.Path, "/efforts") && route.Method != http.MethodGet {
+			require.Equal(t, http.MethodPut, route.Method)
+			require.Contains(t, []string{"/api/workspaces/:slug/efforts/settings", "/api/workspaces/:slug/issues/:identifier/efforts/estimate", "/api/workspaces/:slug/issues/:identifier/efforts/remaining"}, route.Path)
 		}
 	}
 
@@ -202,4 +203,27 @@ func TestEffortsT02HTTPAndRealtime(t *testing.T) {
 	require.Error(t, err)
 	hub.Broadcast(ws, realtime.Event{Type: "test.barrier"})
 	require.Equal(t, "test.barrier", read().Type, "rollback must not publish")
+
+	// Configuration refreshes also invalidate workspace state, only after commit.
+	settings, err := efforts.Settings(ctx, ws)
+	require.NoError(t, err)
+	enabled := false
+	configuration := dto.SetEffortSettingsRequest{EffortMutationRequest: dto.EffortMutationRequest{RequestID: uuid.NewString(), ExpectedRevision: &settings.Revision}, Enabled: &enabled, Timezone: "UTC"}
+	_, err = efforts.SetSettings(ctx, ws, configuration)
+	require.NoError(t, err)
+	event := read()
+	require.Equal(t, "app.refresh", event.Type)
+	require.Equal(t, []any{"workspace", "issues"}, event.Payload.(map[string]any)["resources"])
+	savedSettings, err := efforts.Settings(ctx, ws)
+	require.NoError(t, err)
+	require.False(t, savedSettings.Enabled)
+	_, err = efforts.SetSettings(ctx, ws, configuration)
+	require.NoError(t, err)
+	hub.Broadcast(ws, realtime.Event{Type: "test.barrier"})
+	require.Equal(t, "test.barrier", read().Type, "configuration replay must not publish")
+	configuration.RequestID = uuid.NewString()
+	_, err = efforts.SetSettings(ctx, ws, configuration)
+	require.Error(t, err)
+	hub.Broadcast(ws, realtime.Event{Type: "test.barrier"})
+	require.Equal(t, "test.barrier", read().Type, "configuration rollback must not publish")
 }

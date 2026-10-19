@@ -5,6 +5,7 @@ export interface EffortSettings {
 	enabled: boolean;
 	timezone: string;
 	revision: number;
+	today: EffortDate;
 }
 
 export interface EffortValues {
@@ -46,7 +47,7 @@ export interface EffortWorklog {
 	updated_at: string;
 }
 
-// Write contracts only: no HTTP mutation functions are exposed in T-01.
+// Planning and configuration writes are session-only; worklogs remain internal.
 export interface EffortMutationRequest {
 	request_id: string;
 	expected_revision: number;

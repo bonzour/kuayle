@@ -50,6 +50,7 @@
 	import { listTeams } from '$lib/api/teams';
 	import { getIssueCopyPrompt } from '$lib/api/ai-settings';
 	import HistoryAssignees from './HistoryAssignees.svelte';
+	import EffortPlanning from './EffortPlanning.svelte';
 	import IssueMachineActions from '$lib/features/dev-machines/IssueMachineActions.svelte';
 	import IssueMachinePickerDialog, { type IssueMachineIntent } from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
 	import CreateMachineDialog from '$lib/features/dev-machines/CreateMachineDialog.svelte';
@@ -1496,6 +1497,7 @@
 					</div>
 				{/if}
 			</div>
+			<EffortPlanning {issue} {slug} />
 		</div>
 	</div>
 </div>

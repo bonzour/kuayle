@@ -69,6 +69,7 @@ test('handles machine actions without applying stale poll, route, or trace respo
 	await page.route('**/api/**', async (route) => {
 		const request = route.request();
 		const path = new URL(request.url()).pathname;
+		if (path.endsWith('/efforts/settings')) return route.fulfill({ json: { enabled: true, timezone: 'Europe/Rome', revision: 0, today: '2026-10-17' } });
 
 		if (path === '/api/auth/me') {
 			return route.fulfill({
@@ -487,6 +488,7 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 	await page.route('**/api/**', async (route) => {
 		const request = route.request();
 		const path = new URL(request.url()).pathname;
+		if (path.endsWith('/efforts/settings')) return route.fulfill({ json: { enabled: true, timezone: 'Europe/Rome', revision: 0, today: '2026-10-17' } });
 		if (path === '/api/auth/me') return route.fulfill({ json: { id: '00000000-0000-0000-0000-000000000001', email: 'test@example.com', name: 'Test User', display_name: 'Test User', avatar_url: null } });
 		if (path === '/api/preferences') return route.fulfill({ json: { font_size: 'default', pointer_cursors: true, theme_mode: 'dark', light_theme: 'light', dark_theme: 'dark', workflow_sort_mode: 'default', workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'], team_workflow_sort_overrides: {}, issues_group_by: 'status' } });
 		if (path === '/api/workspaces') return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });

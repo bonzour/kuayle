@@ -133,7 +133,7 @@ func main() {
 	teamH := handler.NewTeamHandler(teamSvc)
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo, projectRepo, cycleRepo, relationSvc)
 	labelH := handler.NewLabelHandler(labelSvc)
-	effortH := handler.NewEffortHandler(effortSvc)
+	effortH := handler.NewEffortHandler(effortSvc, issueRepo)
 	projectH := handler.NewProjectHandler(projectSvc)
 	notifH := handler.NewNotificationHandler(notifSvc)
 	wsH := handler.NewWSHandler(hub)

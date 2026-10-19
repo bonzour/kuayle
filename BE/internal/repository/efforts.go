@@ -25,10 +25,11 @@ func effortWorkspaceVisible(ctx context.Context, column string) string {
 	return workspaceVisible(ctx, column)
 }
 
-func (r *EffortRepository) Settings(ctx context.Context, workspaceID uuid.UUID) (*domain.EffortSettings, error) {
-	var settings domain.EffortSettings
+func (r *EffortRepository) Settings(ctx context.Context, workspaceID uuid.UUID) (*dto.EffortSettingsResponse, error) {
+	var settings dto.EffortSettingsResponse
 	err := r.db.GetContext(ctx, &settings, `SELECT COALESCE(s.enabled,TRUE) AS enabled,
- COALESCE(s.timezone,'Europe/Rome') AS timezone, COALESCE(s.revision,0) AS revision
+ COALESCE(s.timezone,'Europe/Rome') AS timezone, COALESCE(s.revision,0) AS revision,
+ (statement_timestamp() AT TIME ZONE COALESCE(s.timezone,'Europe/Rome'))::date AS today
  FROM workspaces w LEFT JOIN workspace_effort_settings s ON s.workspace_id=w.id
  WHERE w.id=$1 AND `+effortWorkspaceVisible(ctx, "w.id"), workspaceID)
 	if err != nil {

@@ -52,6 +52,7 @@
 		access_read: m['settings.tokens.access_read'],
 		access_write: m['settings.tokens.access_write'],
 		res_issues: m['settings.tokens.res_issues'],
+		res_efforts: m['settings.tokens.res_efforts'],
 		res_comments: m['settings.tokens.res_comments'],
 		res_projects: m['settings.tokens.res_projects'],
 		res_cycles: m['settings.tokens.res_cycles'],
