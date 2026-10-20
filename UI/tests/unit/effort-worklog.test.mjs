@@ -41,3 +41,10 @@ test('work log history includes only manual Remaining, including legacy automati
 	const rows = [entry('1', 'estimate_set', 1), entry('2', 'remaining_set', 1), entry('3', 'worklog_created', 2), entry('4', 'remaining_set', 2, 'worklog'), entry('5', 'remaining_set', 3, 'closure', 'system'), entry('6', 'remaining_set', 4), entry('7', 'remaining_set', 5, 'reactivation'), { id: '8', field: 'title' }, entry('9', 'remaining_set', 1, 'manual', 'user', 'other')];
 	assert.deepEqual(effortHistoryEntries(rows).map(row => row.id), ['1', '3', '6', '9']);
 });
+
+test('the latest work log event uses revision order when timestamps match', () => {
+	const entry = (id, revision) => ({ id, created_at: '2026-10-20T12:00:00Z', effort: { issue_id: 'issue', event_type: 'worklog_created', revision } });
+	const entries = effortHistoryEntries([entry('a', 3), entry('z', 1), entry('m', 2)]);
+	assert.deepEqual(entries.map(row => row.id), ['z', 'm', 'a']);
+	assert.equal(entries.at(-1).effort.revision, 3);
+});

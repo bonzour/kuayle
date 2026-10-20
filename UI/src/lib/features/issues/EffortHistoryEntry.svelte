@@ -1,10 +1,11 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import type { EffortEvent, EffortSnapshot } from '$lib/types/efforts';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { getLocale } from '$lib/paraglide/runtime.js';
 	import { m } from '$lib/paraglide/messages.js';
 	import { formatEffortMinutes } from './effort-duration';
-	let { event }: { event: EffortEvent } = $props();
+	let { event, actions }: { event: EffortEvent; actions?: Snippet } = $props();
 	const name = (id: string) => {
 		const user = event.users?.find((user) => user.id === id);
 		return user?.available
@@ -38,12 +39,15 @@
 	}
 </script>
 
-<div class="min-w-0 space-y-1 text-xs text-[var(--color-text-tertiary)]" data-effort-event={event.event_type}>
-	<p>
-		<strong class="text-[var(--color-text-secondary)]">{actor}</strong>
-		{label}{#if cause}
-			· {cause}{/if} · <time datetime={event.created_at}>{formatRelativeTime(event.created_at, getLocale())}</time>
-	</p>
+<div class="min-w-0 flex-1 space-y-1 text-xs text-[var(--color-text-tertiary)]" data-effort-event={event.event_type}>
+	<div class="flex items-start justify-between gap-2">
+		<p>
+			<strong class="text-[var(--color-text-secondary)]">{actor}</strong>
+			{label}{#if cause}
+				· {cause}{/if} · <time datetime={event.created_at}>{formatRelativeTime(event.created_at, getLocale())}</time>
+		</p>
+		{#if actions}<div class="flex shrink-0 items-center gap-1">{@render actions()}</div>{/if}
+	</div>
 	{#if event.event_type === 'estimate_set' || event.event_type === 'remaining_set'}
 		<p>
 			<span aria-label={m['efforts.history.before']()}>{minutes(event.before)}</span> →

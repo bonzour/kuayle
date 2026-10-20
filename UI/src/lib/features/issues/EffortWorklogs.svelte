@@ -7,9 +7,8 @@
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
 	import type { Issue, IssueHistory } from '$lib/types/issue';
-	import type { EffortUser, EffortWorklog, EffortWorklogPage } from '$lib/types/efforts';
+	import type { EffortWorklog, EffortWorklogPage } from '$lib/types/efforts';
 	import { m } from '$lib/paraglide/messages.js';
-	import { formatEffortMinutes } from './effort-duration';
 	import EffortHistoryEntry from './EffortHistoryEntry.svelte';
 	import { effortHistoryEntries } from './effort-history';
 	import EffortWorklogDialog from './EffortWorklogDialog.svelte';
@@ -25,37 +24,48 @@
 	let loading = $state(false);
 	let failed = $state(false);
 	let unavailable = $state(false);
-	let expanded = $state(true);
-	const RECENT_COUNT = 3;
-	let showAll = $state(false);
+	let expanded = $state(false);
+	const RECENT_COUNT = 1;
 	let showAllHistory = $state(false);
-	let recordsExpanded = $state(false);
 	const events = $derived(effortHistoryEntries(history));
 	const visibleEvents = $derived(showAllHistory ? events : events.slice(-RECENT_COUNT));
 	const hiddenEvents = $derived(events.length - visibleEvents.length);
-	const visibleWorklogs = $derived(showAll ? data?.data ?? [] : (data?.data ?? []).slice(0, RECENT_COUNT));
-	const hiddenCount = $derived(Math.max((data?.data.length ?? 0) - RECENT_COUNT, 0));
+	const latestWorklogEvents = $derived.by(() => {
+		const latest = new Map<string, { id: string; revision: number }>();
+		for (const entry of events) {
+			const snapshot = entry.effort!.after ?? entry.effort!.before;
+			if (snapshot && 'worklog' in snapshot && (latest.get(snapshot.worklog.id)?.revision ?? -1) < entry.effort!.revision) {
+				latest.set(snapshot.worklog.id, { id: entry.id, revision: entry.effort!.revision });
+			}
+		}
+		return latest;
+	});
 	const canWrite = $derived(!!settings?.enabled && (admin || role === 'member') && !failed && !loading);
 	let loadedIdentity = $state('');
 	let selection = $state<{ mode: 'create' | 'update' | 'delete'; worklog: EffortWorklog | null; revision: number } | null>(null);
 	let generation = 0;
 	let activeIdentity = '';
 	const headingId = $props.id();
-	const userName = (user: EffortUser) => user.available ? user.display_name || user.name || m['efforts.worklogs.unavailable_user']() : m['efforts.worklogs.unavailable_user']();
 
-	async function reload(page = 1) {
+	async function reload(worklogId?: string) {
 		const version = ++generation;
 		const key = identity;
 		const current = () => version === generation && key === identity;
 		loading = true;
 		try {
-			const value = await listEffortWorklogs(slug, issue.identifier, page);
+			let value = await listEffortWorklogs(slug, issue.identifier);
 			if (!current()) return;
-			if (data?.page !== value.page) showAll = false;
+			while (worklogId && !value.data.some(row => row.id === worklogId) && value.has_more) {
+				value = await listEffortWorklogs(slug, issue.identifier, value.page + 1);
+				if (!current()) return;
+			}
+			const worklog = value.data.find(row => row.id === worklogId);
+			if (worklogId && !worklog) throw new Error('Work log no longer available');
 			data = value;
 			loadedIdentity = key;
 			failed = false;
 			unavailable = false;
+			return worklog;
 		} catch (failure) {
 			if (!current()) return;
 			failed = true;
@@ -69,8 +79,11 @@
 		}
 	}
 
-	function choose(mode: 'create' | 'update' | 'delete', worklog: EffortWorklog | null = null) {
-		if (canWrite && data) selection = { mode, worklog, revision: data.revision };
+	async function choose(mode: 'create' | 'update' | 'delete', worklogId?: string) {
+		if (!canWrite) return;
+		const worklog = worklogId ? await reload(worklogId) : null;
+		if (worklogId && !worklog) return;
+		if (canWrite && data) selection = { mode, worklog: worklog ?? null, revision: data.revision };
 	}
 
 	$effect(() => {
@@ -81,10 +94,8 @@
 				selection = null;
 				failed = false;
 				unavailable = false;
-				expanded = true;
-				showAll = false;
+				expanded = false;
 				showAllHistory = false;
-				recordsExpanded = false;
 			}
 			activeIdentity = key;
 			void reload();
@@ -139,68 +150,26 @@
 				<button type="button" onclick={() => showAllHistory = true} class="relative z-10 mb-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]">{m['issue.show_earlier']({ n: hiddenEvents })}</button>
 			{/if}
 			{#each visibleEvents as entry (entry.id)}
-				<div class="relative flex items-start gap-3 pb-2.5">
+				{@const snapshot = entry.effort!.after}
+				{@const worklog = snapshot && 'worklog' in snapshot && latestWorklogEvents.get(snapshot.worklog.id)?.id === entry.id ? snapshot.worklog : null}
+				<div data-worklog-id={worklog?.id} class="relative flex items-start gap-3 pb-2.5">
 					<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-bg)] text-[var(--color-text-tertiary)] ring-2 ring-[var(--color-bg)]" aria-hidden="true"><Clock3 size={12} /></div>
-					<EffortHistoryEntry event={entry.effort!} />
+					<EffortHistoryEntry event={entry.effort!}>
+						{#snippet actions()}
+							{#if worklog && canWrite && (admin || worklog.owner_user_id === authState.user?.id)}
+								<button type="button" aria-label={m['efforts.worklogs.edit']()} title={m['efforts.worklogs.edit']()} onclick={() => choose('update', worklog.id)}
+									class="rounded p-1 hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"><Pencil size={12} /></button>
+								<button type="button" aria-label={m['common.delete']()} title={m['common.delete']()} onclick={() => choose('delete', worklog.id)}
+									class="rounded p-1 hover:bg-[var(--color-bg-hover)] hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"><Trash2 size={12} /></button>
+							{/if}
+						{/snippet}
+					</EffortHistoryEntry>
 				</div>
 			{:else}<p class="text-xs text-[var(--color-text-tertiary)]">{m['issue.no_activity']()}</p>{/each}
 			{#if showAllHistory && events.length > RECENT_COUNT}
 				<button type="button" onclick={() => showAllHistory = false} class="relative z-10 mt-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]">{m['issue.show_less']()}</button>
 			{/if}
 		</div>
-		<details bind:open={recordsExpanded} data-worklog-records class="border-t border-[var(--app-border)] pt-3">
-			<summary class="mb-3 cursor-pointer text-xs font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">{m['efforts.worklogs.records']()} ({data.total_count})</summary>
-		{#if !data.data.length}<p class="text-xs text-[var(--color-text-tertiary)]">{m['efforts.worklogs.empty']()}</p>{/if}
-		<div class="relative">
-			{#if visibleWorklogs.length > 0}<div class="absolute left-[9px] top-3 bottom-0 w-px bg-[var(--app-border)]" aria-hidden="true"></div>{/if}
-			{#if hiddenCount > 0 && !showAll}
-				<button type="button" onclick={() => showAll = true}
-					class="relative z-10 mb-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]">
-					{m['efforts.worklogs.show_earlier']({ n: hiddenCount })}
-				</button>
-			{/if}
-			<ul>
-				{#each visibleWorklogs as worklog (worklog.id)}
-					<li class="relative flex items-start gap-3 pb-2.5">
-						<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-bg)] text-[var(--color-text-tertiary)] ring-2 ring-[var(--color-bg)]" aria-hidden="true">
-							<Clock3 size={12} />
-						</div>
-						<div class="min-w-0 flex-1 space-y-1">
-							<div class="flex min-h-5 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-[var(--color-text-tertiary)]">
-								<strong class="text-[var(--color-text-secondary)]">{userName(worklog.owner)}</strong>
-								<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatEffortMinutes(worklog.duration_minutes)}</code>
-								<span aria-hidden="true">&middot;</span>
-								<time datetime={worklog.work_date}>{worklog.work_date}</time>
-								{#if canWrite && (admin || worklog.owner.id === authState.user?.id)}
-									<div class="ml-auto flex shrink-0 items-center gap-1 text-[var(--color-text-tertiary)]">
-										<button type="button" aria-label={m['efforts.worklogs.edit']()} title={m['efforts.worklogs.edit']()} onclick={() => choose('update', worklog)}
-											class="rounded p-1 transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"><Pencil size={12} /></button>
-										<button type="button" aria-label={m['common.delete']()} title={m['common.delete']()} onclick={() => choose('delete', worklog)}
-											class="rounded p-1 transition-colors hover:bg-[var(--color-bg-hover)] hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"><Trash2 size={12} /></button>
-									</div>
-								{/if}
-							</div>
-							{#if worklog.owner.id !== worklog.operator.id}<p class="text-[11px] text-[var(--color-text-tertiary)]">{m['efforts.worklogs.inserted_by']({ name: userName(worklog.operator) })}</p>{/if}
-							{#if worklog.description}<p class="whitespace-pre-wrap break-words text-xs text-[var(--color-text-secondary)]">{worklog.description}</p>{/if}
-						</div>
-					</li>
-				{/each}
-			</ul>
-		</div>
-		{#if hiddenCount > 0 && showAll}
-			<button type="button" onclick={() => showAll = false}
-				class="relative z-10 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]">
-				{m['issue.show_less']()}
-			</button>
-		{/if}
-		{#if data.page > 1 || data.has_more}
-			<nav aria-label={m['efforts.worklogs.pages']()} class="flex items-center justify-between gap-3">
-				<Button size="sm" variant="outline" disabled={loading || data.page === 1} onclick={() => reload(data!.page - 1)}>{m['efforts.worklogs.previous']()}</Button>
-				<span class="text-xs">{m['efforts.worklogs.page']({ page: data.page })}</span>
-				<Button size="sm" variant="outline" disabled={loading || !data.has_more} onclick={() => reload(data!.page + 1)}>{m['efforts.worklogs.next']()}</Button>
-			</nav>
-		{/if}
-		</details>
 	{:else if loading}<p role="status" class="text-xs">{m['settings.efforts.loading']()}</p>{/if}
 	</div>
 </section>

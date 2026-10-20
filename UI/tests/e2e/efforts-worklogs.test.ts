@@ -10,8 +10,7 @@ const person = (id = userId) => ({ id, available: true, name: id === userId ? 'T
 const timestamp = '2026-10-19T12:00:00Z';
 const register = (page: Page) => page.getByRole('region', { name: 'Work log', exact: true });
 const dialog = (page: Page) => page.locator('[data-slot="dialog-content"]');
-const records = (page: Page) => register(page).locator('[data-worklog-records]');
-const rows = (page: Page) => records(page).getByRole('listitem');
+const rows = (page: Page) => register(page).locator('[data-worklog-id]');
 
 function fixture(role = 'member', count = 0) {
 	const issues = [1, 2].map((number) => ({
@@ -75,7 +74,7 @@ function fixture(role = 'member', count = 0) {
 				socket.send(JSON.stringify({ type: 'app.refresh', payload: { resources: ['workspace', 'issues'], privacy: true } }));
 		}
 	};
-	async function attach(page: Page, view: 'page' | 'panel' = 'page') {
+	async function attach(page: Page, view: 'page' | 'panel' = 'page', expand = true) {
 		await page.addInitScript(() => localStorage.setItem('PARAGLIDE_LOCALE', 'en'));
 		await page.routeWebSocket('**/ws', (socket) => {
 			state.sockets.push(socket);
@@ -108,7 +107,18 @@ function fixture(role = 'member', count = 0) {
 					return route.fulfill({ json: { enabled: state.enabled, timezone: 'Pacific/Kiritimati', revision: 0, today: state.today } });
 				if (path.endsWith('/efforts/worklog-owners')) return route.fulfill({ json: [person(), person(memberId)] });
 				if (!state.accessible && path.includes('/issues/EP-')) return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
-				if (path.endsWith('/history')) return route.fulfill({ json: state.history[path.split('/').at(-2)!] ?? [] });
+				if (path.endsWith('/history')) {
+					const identifier = path.split('/').at(-2)!;
+					const history = state.history[identifier] ?? logs[identifier].map((log, index) => {
+						const created_at = new Date(Date.parse(timestamp) + index * 1000).toISOString();
+						return { id: `event-${log.id}`, issue_id: log.issue_id, field: 'efforts', created_at,
+							effort: { id: `event-${log.id}`, issue_id: log.issue_id, event_type: 'worklog_created', actor: {kind:'user',user_id:userId},
+								cause: 'manual', snapshot_version: 1, revision: revisions[identifier], created_at, users: [person(), person(memberId)], before: null,
+								after: { worklog: {id:log.id, owner_user_id:log.owner.id, created_by_user_id:log.operator.id, work_date:log.work_date, duration_minutes:log.duration_minutes, description:log.description, created_at:log.created_at, updated_at:log.updated_at} } }
+						};
+					});
+					return route.fulfill({ json: history });
+				}
 				const match = path.match(/\/issues\/(EP-[12])\/efforts(?:\/worklogs(?:\/([^/]+))?)?$/);
 				if (match) {
 					const identifier = match[1];
@@ -242,7 +252,9 @@ function fixture(role = 'member', count = 0) {
 		if (view === 'panel') await page.getByText('Worklog issue 1', { exact: true }).click();
 		await expect(register(page)).toBeVisible();
 		await expect(register(page)).toHaveAttribute('aria-busy', 'false');
-		await records(page).locator('summary').click();
+		await expect(register(page).getByRole('button', { name: 'Work log', exact: true })).toHaveAttribute('aria-expanded', 'false');
+		await expect(register(page).locator('[data-worklog-records]')).toHaveCount(0);
+		if (expand) await register(page).getByRole('button', { name: 'Work log', exact: true }).click();
 	}
 	return { state, attach };
 }
@@ -376,20 +388,22 @@ test('validation preserves Unicode and reports the daily limit on duration', asy
 	expect(state.logs['EP-1'][0].description).toBe('🙂'.repeat(2000));
 });
 
-test('pagination exposes the records after fifty and supports keyboard cancellation', async ({ page }) => {
-	const { attach } = fixture('member', 55);
+test('earlier events expose work logs after fifty and support keyboard cancellation', async ({ page }) => {
+	const { state, attach } = fixture('member', 55);
 	await attach(page);
-	await expect(rows(page)).toHaveCount(3);
-	await register(page).getByRole('button', { name: 'Show 47 earlier entries', exact: true }).click();
-	await expect(rows(page)).toHaveCount(50);
-	await register(page).getByRole('button', { name: 'Next', exact: true }).click();
-	await expect(rows(page)).toHaveCount(3);
-	await register(page).getByRole('button', { name: 'Show 2 earlier entries', exact: true }).click();
-	await expect(rows(page)).toHaveCount(5);
-	await expect(rows(page).first()).toContainText('Entry 51');
-	await register(page).getByRole('button', { name: 'Previous', exact: true }).click();
-	await register(page).getByRole('button', { name: 'Show 47 earlier entries', exact: true }).click();
-	await expect(rows(page)).toHaveCount(50);
+	await expect(rows(page)).toHaveCount(1);
+	await expect(rows(page)).toContainText('Entry 55');
+	await rows(page).getByRole('button', { name: 'Edit work log', exact: true }).click();
+	await expect(dialog(page).getByLabel('Description (optional)', { exact: true })).toHaveValue('Entry 55');
+	await fill(page, '2h', 'Corrected beyond first page');
+	await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
+	await expect(rows(page)).toContainText('Corrected beyond first page');
+	expect(state.logs['EP-1'][54].description).toBe('Corrected beyond first page');
+	await register(page).getByRole('button', { name: 'Show 54 earlier event(s)', exact: true }).click();
+	await expect(rows(page)).toHaveCount(55);
+	await expect(rows(page).first()).toContainText('Entry 1');
+	await register(page).getByRole('button', { name: 'Show less', exact: true }).click();
+	await expect(rows(page)).toHaveCount(1);
 	await openCreate(page);
 	await dialog(page).getByLabel('Duration', { exact: true }).press('Escape');
 	await expect(dialog(page)).toHaveCount(0);
@@ -463,26 +477,28 @@ test('creation rereads workspace today when the dialog opens', async ({ page }) 
 for (const view of ['page', 'panel'] as const) {
 	test(`work log follows Activity and expands as a compact timeline in the ${view}`, async ({ page }, testInfo) => {
 		const { attach } = fixture('member', 5);
-		await attach(page, view);
+		await attach(page, view, false);
 		if (view === 'page') {
 			await expect(register(page).locator('xpath=preceding-sibling::*[1]').getByRole('heading', { name: 'Activity', exact: true })).toBeVisible();
 		} else {
 			await page.getByRole('button', { name: 'Activity (0)', exact: true }).click();
 			await expect(register(page).locator('xpath=preceding-sibling::*[1]')).toHaveText('No activity yet');
 		}
-		await expect(rows(page)).toHaveCount(3);
+		await expect(rows(page)).toHaveCount(1);
 		const toggle = register(page).getByRole('button', { name: 'Work log', exact: true });
-		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+		await expect(rows(page)).toBeHidden();
 		await toggle.focus();
 		await toggle.press('Enter');
-		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-		await expect(register(page).getByRole('list')).toBeHidden();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+		await expect(rows(page)).toBeVisible();
 		await toggle.press('Space');
-		await expect(register(page).getByRole('list')).toBeVisible();
-		await register(page).getByRole('button', { name: 'Show 2 earlier entries', exact: true }).click();
+		await expect(rows(page)).toBeHidden();
+		await toggle.press('Space');
+		await register(page).getByRole('button', { name: 'Show 4 earlier event(s)', exact: true }).click();
 		await expect(rows(page)).toHaveCount(5);
 		await register(page).getByRole('button', { name: 'Show less', exact: true }).click();
-		await expect(rows(page)).toHaveCount(3);
+		await expect(rows(page)).toHaveCount(1);
 		await register(page).screenshot({ path: testInfo.outputPath('worklog-timeline.png'), animations: 'disabled' });
 		await page.emulateMedia({ colorScheme: 'dark' });
 		await expect(page.locator('html')).toHaveClass(/dark/);
@@ -514,7 +530,7 @@ for (const view of ['page', 'panel'] as const) {
   state.history['EP-1']=[{id:'event',issue_id:'issue',user_id:userId,field:'efforts',old_value:null,new_value:null,created_at:timestamp,effort:event}];
   await attach(page,view);
   if(view==='panel')await page.getByRole('button',{name:/^Activity \(/}).click();
-  const totals=page.getByLabel('Total of visible issues',{exact:true});
+  const totals=page.getByLabel('Total effort',{exact:true});
   await expect(totals).toContainText('1d 4h');await expect(totals).toContainText('1d 1h');await expect(totals).toContainText('partial');
   const history=register(page).locator('[data-effort-event="worklog_deleted"]');
   await expect(history).toContainText('Test User');await history.getByText('Work log details',{exact:true}).click();
@@ -539,12 +555,12 @@ test('two sessions refresh parent totals and history after reconnect',async({pag
  state.total={estimate_minutes:720,spent_minutes:0,remaining_minutes:720,estimate_partial:false,remaining_partial:false};
  await attach(page);
  const second=await context.newPage();await attach(second);
- for(const session of [page,second])await expect(session.getByLabel('Total of visible issues',{exact:true})).toContainText('1d 4h');
+ for(const session of [page,second])await expect(session.getByLabel('Total effort',{exact:true})).toHaveCount(0);
  state.total.remaining_minutes=540;state.total.spent_minutes=180;state.refresh();
- for(const session of [page,second])await expect(session.getByLabel('Total of visible issues',{exact:true})).toContainText('1d 1h');
+ for(const session of [page,second])await expect(session.getByLabel('Total effort',{exact:true})).toContainText('1d 1h');
  state.total.remaining_minutes=480;
  await second.evaluate(()=>window.dispatchEvent(new CustomEvent('ws:reconnected')));
- await expect(second.getByLabel('Total of visible issues',{exact:true})).toContainText('1d');
+ await expect(second.getByLabel('Total effort',{exact:true})).toContainText('1d');
  await second.close();
 });
 
@@ -578,15 +594,16 @@ for (const view of ['page', 'panel'] as const) {
 		state.history['EP-1'] = [make('estimate', 'estimate_set', 1), make('initial', 'remaining_set', 1), make('logged', 'remaining_set', 2, 'worklog'), make('closed', 'remaining_set', 3, 'closure', 'system'), make('reactivated', 'remaining_set', 4, 'reactivation'), make('manual', 'remaining_set', 5), {id:'title',field:'title',created_at:timestamp}];
 		await attach(page, view);
 		if (view === 'panel') await page.getByRole('button', {name:'Activity (1)',exact:true}).click();
+		await expect(page.locator('[data-effort-event]')).toHaveCount(1);
+		await expect(register(page).locator('[data-effort-event="remaining_set"]')).toBeVisible();
+		await register(page).getByRole('button', { name: 'Show 1 earlier event(s)', exact: true }).click();
 		await expect(page.locator('[data-effort-event]')).toHaveCount(2);
 		await expect(register(page).locator('[data-effort-event="estimate_set"]')).toContainText('1d');
 		await expect(register(page).locator('[data-effort-event="remaining_set"]')).toHaveCount(1);
 		await expect(register(page).locator('[data-effort-event="remaining_set"]')).toContainText('Test User');
-		await records(page).locator('summary').click();
-		await expect(rows(page)).not.toBeVisible();
+		await expect(register(page).locator('[data-worklog-records]')).toHaveCount(0);
+		await expect(register(page).getByText('Entries', {exact:true})).toHaveCount(0);
 		await register(page).screenshot({path:testInfo.outputPath(`effort-history-${view}.png`)});
-		await records(page).locator('summary').click();
-		await expect(rows(page)).toContainText('Entry 1');
 	});
 }
 
@@ -602,4 +619,54 @@ test('invalid and weekend-only periods keep the draft without submitting', async
 	await expect(dialog(page).getByLabel('To',{exact:true})).toHaveAttribute('aria-invalid','true');
 	await expect(dialog(page).getByLabel('Description (optional)',{exact:true})).toHaveValue('Keep my period');
 	expect(state.writes).toHaveLength(0);
+});
+
+for (const view of ['page', 'panel'] as const) {
+	test(`total effort is separate and appears only for logged work on descendants in the ${view}`, async ({ page }, testInfo) => {
+		const { state, attach } = fixture('owner', 1);
+		state.hasDescendants = true;
+		state.total = { estimate_minutes:720, spent_minutes:1, remaining_minutes:719, estimate_partial:false, remaining_partial:false };
+		await attach(page, view);
+		const own = page.getByRole('region', {name:'Effort',exact:true});
+		const total = page.getByRole('region', {name:'Total effort',exact:true});
+		await expect(total).toHaveCount(0);
+		state.total.spent_minutes = 180;
+		state.total.remaining_minutes = 540;
+		state.refresh();
+		await expect(total).toBeVisible();
+		await expect(own.getByRole('region')).toHaveCount(0);
+		await expect(total.getByLabel('Time spent', {exact:true})).toHaveText('3h');
+		await expect(total.locator('[data-effort-bar="spent"] > div')).toHaveAttribute('style', /width: 25%/);
+		await expect(total.locator('[data-effort-bar="remaining"] > div')).toHaveAttribute('style', /width: 75%/);
+		await expect(total.getByRole('textbox')).toHaveCount(0);
+		await own.getByRole('button', {name:'Effort',exact:true}).click();
+		await expect(own.getByLabel('Time spent', {exact:true})).toBeHidden();
+		await expect(total.getByLabel('Time spent', {exact:true})).toBeVisible();
+		await own.getByRole('button', {name:'Effort',exact:true}).click();
+		await own.locator('..').screenshot({path:testInfo.outputPath(`effort-sections-${view}.png`)});
+		await total.getByRole('button', {name:'Total effort',exact:true}).click();
+		await expect(total.getByLabel('Time spent', {exact:true})).toBeHidden();
+		state.total.spent_minutes = 1;
+		state.refresh();
+		await expect(total).toHaveCount(0);
+	});
+}
+
+test('only the latest event offers actions and deletion removes actions from the full history', async ({ page }) => {
+	const { state, attach } = fixture('member', 1);
+	const log = state.logs['EP-1'][0];
+	const snapshot = {worklog:{id:log.id,owner_user_id:userId,created_by_user_id:userId,work_date:log.work_date,duration_minutes:60,description:'Saved work',created_at:timestamp,updated_at:timestamp}};
+	const make = (id: string, event_type: string, revision: number, before: typeof snapshot | null, after: typeof snapshot | null) => ({id,issue_id:log.issue_id,field:'efforts',created_at:timestamp,effort:{id,issue_id:log.issue_id,event_type,revision,actor:{kind:'user',user_id:userId},cause:'manual',before,after,users:[person()],snapshot_version:1,created_at:timestamp}});
+	state.history['EP-1'] = [make('z-created','worklog_created',1,null,snapshot),make('a-updated','worklog_updated',2,snapshot,snapshot)];
+	await attach(page);
+	await expect(register(page).locator('[data-effort-event="worklog_updated"]')).toBeVisible();
+	await register(page).getByRole('button', {name:'Show 1 earlier event(s)',exact:true}).click();
+	await expect(register(page).getByRole('button', {name:'Edit work log',exact:true})).toHaveCount(1);
+	await expect(register(page).locator('[data-effort-event="worklog_created"]').getByRole('button')).toHaveCount(0);
+	state.history['EP-1'].push(make('b-deleted','worklog_deleted',3,snapshot,null));
+	state.logs['EP-1'] = [];
+	state.refresh();
+	await expect(register(page).locator('[data-effort-event]')).toHaveCount(3);
+	await expect(register(page).getByRole('button', {name:'Edit work log',exact:true})).toHaveCount(0);
+	await expect(register(page).getByRole('button', {name:'Delete',exact:true})).toHaveCount(0);
 });

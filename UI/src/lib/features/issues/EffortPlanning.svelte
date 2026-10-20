@@ -10,6 +10,7 @@
 	import type { EffortSummary } from '$lib/types/efforts';
 	import { m } from '$lib/paraglide/messages.js';
 	import EffortPlanningField from './EffortPlanningField.svelte';
+	import EffortBar from './EffortBar.svelte';
 	import { formatEffortMinutes } from './effort-duration';
 
 	let { issue, slug }: { issue: Issue; slug: string } = $props();
@@ -27,6 +28,10 @@
 	let loadedIdentity = $state('');
 	const headingId = $props.id();
 	let expanded = $state(true);
+	let totalsExpanded = $state(true);
+	const ownScale = $derived(Math.max(summary?.own.estimate_minutes ?? 0, (summary?.own.spent_minutes ?? 0) + (summary?.own.remaining_minutes ?? 0), 1));
+	const totalScale = $derived(Math.max(summary?.total.estimate_minutes ?? 0, (summary?.total.spent_minutes ?? 0) + (summary?.total.remaining_minutes ?? 0), 1));
+	const showTotals = $derived(summary && loadedIdentity === identity && summary.has_visible_descendants && summary.total.spent_minutes > summary.own.spent_minutes);
 	const terminal = $derived(currentIssue?.status_info
 		? ['completed', 'cancelled'].includes(currentIssue.status_info.category)
 		: ['done', 'completed', 'cancelled'].includes(currentIssue?.status ?? ''));
@@ -119,28 +124,16 @@
 		{/if}
 		{#if summary && loadedIdentity === identity}
 			{#key identity}
-				<EffortPlanningField kind="estimate" {slug} identifier={issue.identifier} {summary} {canEdit} {reload} />
-				<div class="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-bg-hover)] transition-colors">
-					<span class="w-20 shrink-0 text-xs text-[var(--color-text-tertiary)]">{m['efforts.planning.spent']()}</span>
-					<output aria-label={m['efforts.planning.spent']()} class="text-sm text-[var(--color-text-primary)]">{formatEffortMinutes(summary.own.spent_minutes)}</output>
+				<EffortPlanningField kind="estimate" {slug} identifier={issue.identifier} {summary} {canEdit} {reload} scale={ownScale} />
+				<div class="rounded-md px-2 py-2 hover:bg-[var(--color-bg-hover)] transition-colors">
+					<div class="flex items-center justify-between gap-3">
+						<span class="text-xs text-[var(--color-text-tertiary)]">{m['efforts.planning.spent']()}</span>
+						<output aria-label={m['efforts.planning.spent']()} class="text-sm text-[var(--color-text-primary)]">{formatEffortMinutes(summary.own.spent_minutes)}</output>
+					</div>
+					<div class="mt-1.5"><EffortBar kind="spent" minutes={summary.own.spent_minutes} scale={ownScale} /></div>
 				</div>
-				<EffortPlanningField kind="remaining" {slug} identifier={issue.identifier} {summary} canEdit={canEdit && !terminal} {reload} />
+				<EffortPlanningField kind="remaining" {slug} identifier={issue.identifier} {summary} canEdit={canEdit && !terminal} {reload} scale={ownScale} />
 			{/key}
-			{#if summary.has_visible_descendants}
-				<div class="mt-2 border-t border-[var(--app-border)] pt-2" aria-label={m['efforts.totals.title']()}>
-					<p class="px-2 py-1.5 text-[11px] text-[var(--color-text-tertiary)]">{m['efforts.totals.title']()}</p>
-					{#each [
-						{ label: m['efforts.planning.estimate'](), value: summary.total.estimate_minutes, partial: summary.total.estimate_partial },
-						{ label: m['efforts.planning.spent'](), value: summary.total.spent_minutes, partial: false },
-						{ label: m['efforts.planning.remaining'](), value: summary.total.remaining_minutes, partial: summary.total.remaining_partial }
-					] as total}
-						<div class="flex items-center gap-3 rounded-md px-2 py-1.5">
-							<span class="w-20 shrink-0 text-xs text-[var(--color-text-tertiary)]">{total.label}</span>
-							<output aria-label={total.label} class="text-sm text-[var(--color-text-primary)]">{total.value === null ? m['efforts.planning.unestimated']() : formatEffortMinutes(total.value)}{#if total.partial && total.value !== null}<span class="ml-1 text-[11px] text-[var(--color-text-tertiary)]">({m['efforts.totals.partial']()})</span>{/if}</output>
-						</div>
-					{/each}
-				</div>
-			{/if}
 			{#if !settings?.enabled}<p class="px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]">{settings ? m['efforts.planning.disabled']() : m['settings.efforts.load_error']()}</p>
 			{:else if membership && !hasPermission && !loading && !failed}<p class="px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]">{m['efforts.planning.readonly']()}</p>{/if}
 			{#if terminal}<p class="px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]">{m['efforts.planning.closed']()}</p>{/if}
@@ -149,4 +142,29 @@
 		{/if}
 	</div>
 </section>
+{#if showTotals && summary}
+<section class="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]" aria-labelledby={`${headingId}-totals`}>
+	<button id={`${headingId}-totals`} type="button" onclick={() => totalsExpanded = !totalsExpanded}
+		aria-expanded={totalsExpanded} aria-controls={`${headingId}-totals-content`}
+		class="flex w-full items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
+		<ChevronRight size={12} class="transition-transform {totalsExpanded ? 'rotate-90' : ''}" />
+		{m['efforts.totals.title']()}
+	</button>
+	<div id={`${headingId}-totals-content`} hidden={!totalsExpanded} class="px-1.5 pb-2 space-y-0.5">
+		{#each ([
+			{ kind: 'estimate', label: m['efforts.planning.estimate'](), value: summary.total.estimate_minutes, partial: summary.total.estimate_partial },
+			{ kind: 'spent', label: m['efforts.planning.spent'](), value: summary.total.spent_minutes, partial: false },
+			{ kind: 'remaining', label: m['efforts.planning.remaining'](), value: summary.total.remaining_minutes, partial: summary.total.remaining_partial }
+		] as const) as total}
+			<div class="rounded-md px-2 py-2">
+				<div class="flex items-center justify-between gap-3">
+					<span class="text-xs text-[var(--color-text-tertiary)]">{total.label}</span>
+					<output aria-label={total.label} class="text-right text-sm text-[var(--color-text-primary)]">{total.value === null ? m['efforts.planning.unestimated']() : formatEffortMinutes(total.value)}{#if total.partial && total.value !== null}<span class="ml-1 text-[11px] text-[var(--color-text-tertiary)]">({m['efforts.totals.partial']()})</span>{/if}</output>
+				</div>
+				<div class="mt-1.5"><EffortBar kind={total.kind} minutes={total.value} scale={totalScale} /></div>
+			</div>
+		{/each}
+	</div>
+</section>
+{/if}
 {/if}

@@ -1747,7 +1747,7 @@
 	"efforts.worklogs.next": "Successiva",
 	"efforts.worklogs.page": "Pagina {page}",
 	"efforts.worklogs.show_earlier": "Mostra {n} registrazioni precedenti",
-	"efforts.totals.title": "Totale delle issue visibili",
+	"efforts.totals.title": "Effort totale",
 	"efforts.totals.partial": "parziale",
 	"efforts.history.system": "Sistema ({source})",
 	"efforts.history.estimate": "ha modificato la stima",

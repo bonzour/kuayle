@@ -1747,7 +1747,7 @@
 	"efforts.worklogs.next": "下一页",
 	"efforts.worklogs.page": "第 {page} 页",
 	"efforts.worklogs.show_earlier": "显示更早的 {n} 条记录",
-	"efforts.totals.title": "可见议题总计",
+	"efforts.totals.title": "总工作量",
 	"efforts.totals.partial": "部分",
 	"efforts.history.system": "系统（{source}）",
 	"efforts.history.estimate": "修改了预估",

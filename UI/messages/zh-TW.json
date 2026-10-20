@@ -1747,7 +1747,7 @@
 	"efforts.worklogs.next": "下一頁",
 	"efforts.worklogs.page": "第 {page} 頁",
 	"efforts.worklogs.show_earlier": "顯示較早的 {n} 筆紀錄",
-	"efforts.totals.title": "可見議題總計",
+	"efforts.totals.title": "總工作量",
 	"efforts.totals.partial": "部分",
 	"efforts.history.system": "系統（{source}）",
 	"efforts.history.estimate": "修改了預估",

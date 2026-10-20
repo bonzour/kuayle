@@ -334,6 +334,22 @@ con la stessa issue e revisione. La proiezione UI non elimina gli eventi dalla
 risposta API né dall’archivio. Il registro precedente rimane in «Registrazioni»,
 richiudibile, con le azioni esistenti. Testi nelle quattro lingue del progetto.
 
+### Compattazione UI Efforts (2026-10-20)
+
+La UI aggiornata sostituisce la sottosezione «Registrazioni / Entries» con le
+azioni sull’ultimo evento di ogni worklog ancora esistente. WORK LOG parte
+chiuso e, all’apertura, mostra un solo evento; «Mostra precedenti» espande lo
+storico e «Mostra meno» ripristina il singolo evento. Prima di modifica/delete
+il client rilegge il record corrente attraversando le pagine API necessarie;
+contratti, permessi, revisioni e snapshot storici non cambiano.
+
+La sidebar separa Effort proprio da Effort totale. Il totale compare soltanto
+se `has_visible_descendants` e `total.spent_minutes > own.spent_minutes`, cioè
+quando esiste lavoro registrato su discendenti visibili. Le tre barre di ogni
+scheda condividono la scala `max(estimate, spent + remaining, 1)`; i valori
+nulli non riempiono la barra. I totali restano in sola lettura e conservano gli
+indicatori di dati parziali.
+
 ### Comandi sulle issue e garanzie comuni
 
 Esempio di creazione:

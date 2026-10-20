@@ -6,11 +6,12 @@
 	import type { EffortSummary } from '$lib/types/efforts';
 	import { m } from '$lib/paraglide/messages.js';
 	import EffortDurationInput from './EffortDurationInput.svelte';
+	import EffortBar from './EffortBar.svelte';
 	import { parseEffortMinutes, formatEffortMinutes } from './effort-duration';
 
-	let { kind, slug, identifier, summary, canEdit, reload }: {
+	let { kind, slug, identifier, summary, canEdit, reload, scale }: {
 		kind: 'estimate' | 'remaining'; slug: string; identifier: string; summary: EffortSummary;
-		canEdit: boolean; reload: () => Promise<EffortSummary | null>;
+		canEdit: boolean; reload: () => Promise<EffortSummary | null>; scale: number;
 	} = $props();
 	let baseline = $state<{ value: number | null; revision: number } | null>(null);
 	let text = $state('');
@@ -153,25 +154,28 @@
 {/snippet}
 
 <div role="group" aria-label={label}>
-	<div class="flex items-start gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-bg-hover)] transition-colors">
-		<span class="w-20 shrink-0 text-xs leading-5 text-[var(--color-text-tertiary)]">{label}</span>
-		<div class="min-w-0 flex-1">
-			{#if editing}
-				<div onfocusout={focusout}>
-					<EffortDurationInput bind:value={text} bind:ref={inputRef} {label}
-						disabled={!canEdit || busy || !!attempt || denied} error={inputError} onkeydown={keydown} />
-					{#if kind === 'estimate' && baseline?.value !== null}
-						<button type="button" class="mt-1 rounded-sm py-1 text-left text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
-							disabled={!canEdit || busy || denied || conflict || stale || !!attempt} onclick={() => save(true)}>{m['efforts.planning.remove_estimate']()}</button>
-					{/if}
-				</div>
-			{:else}
-				<button bind:this={valueRef} type="button" aria-label={label} disabled={!canEdit || busy || denied} onclick={edit}
-					class="flex items-center gap-1.5 text-left text-sm text-[var(--color-text-primary)] disabled:cursor-default">
-					{displayValue}
-				</button>
-			{/if}
+	<div class="rounded-md px-2 py-2 hover:bg-[var(--color-bg-hover)] transition-colors">
+		<div class="flex items-start justify-between gap-3">
+			<span class="shrink-0 text-xs leading-5 text-[var(--color-text-tertiary)]">{label}</span>
+			<div class="min-w-0 text-right">
+				{#if editing}
+					<div onfocusout={focusout}>
+						<EffortDurationInput bind:value={text} bind:ref={inputRef} {label}
+							disabled={!canEdit || busy || !!attempt || denied} error={inputError} onkeydown={keydown} />
+						{#if kind === 'estimate' && baseline?.value !== null}
+							<button type="button" class="mt-1 rounded-sm py-1 text-left text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
+								disabled={!canEdit || busy || denied || conflict || stale || !!attempt} onclick={() => save(true)}>{m['efforts.planning.remove_estimate']()}</button>
+						{/if}
+					</div>
+				{:else}
+					<button bind:this={valueRef} type="button" aria-label={label} disabled={!canEdit || busy || denied} onclick={edit}
+						class="flex items-center gap-1.5 text-left text-sm text-[var(--color-text-primary)] disabled:cursor-default">
+						{displayValue}
+					</button>
+				{/if}
+			</div>
 		</div>
+		<div class="mt-1.5"><EffortBar {kind} minutes={kind === 'estimate' ? summary.own.estimate_minutes : summary.own.remaining_minutes} {scale} /></div>
 	</div>
 	{@render feedback()}
 </div>

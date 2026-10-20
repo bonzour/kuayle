@@ -46,7 +46,7 @@ function fixture(role = 'owner') {
 		await page.route(url => url.pathname.startsWith('/api/'), async route => {
 			const path = new URL(route.request().url()).pathname;
 			if (path === '/api/auth/me') return route.fulfill({ json: user });
-			if (path === '/api/preferences') return route.fulfill({ json: {} });
+			if (path === '/api/preferences') return route.fulfill({ json: { theme_mode: 'system', light_theme: 'light', dark_theme: 'dark', font_size: 'default', pointer_cursors: true } });
 			const workspace = { id: 'test-id', slug: 'test', name: 'Test workspace', current_user_role: state.role, owner_id: userId, created_at: timestamp, updated_at: timestamp };
 			if (path === '/api/workspaces') return route.fulfill({ json: [workspace] });
 			if (path === '/api/workspaces/test') {
@@ -334,3 +334,29 @@ test('planning accepts days as its primary unit with eight hours per day', async
 	await enter(page,'Remaining','0,5d');
 	expect(state.summaries['EP-1'].own.remaining_minutes).toBe(240);
 });
+
+for (const view of ['page', 'panel'] as const) {
+	test(`effort bars share a scale and handle overruns, missing and zero estimates in the ${view}`, async ({ page }, testInfo) => {
+		const { state, attach } = fixture();
+		await attach(page, view);
+		const bar = (kind: string) => planning(page).locator(`[data-effort-bar="${kind}"] > div`);
+		for (const kind of ['estimate', 'spent', 'remaining']) await expect(bar(kind)).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+		await expect(bar('estimate')).toHaveCSS('width', '0px');
+		await expect(bar('remaining')).toHaveCSS('width', '0px');
+		await expect(bar('spent')).toHaveAttribute('style', /width: 100%/);
+		await enter(page, 'Estimate', '1d');
+		await expect(bar('estimate')).toHaveAttribute('style', /width: 100%/);
+		await expect(bar('spent')).toHaveAttribute('style', /width: 25%/);
+		await expect(bar('remaining')).toHaveAttribute('style', /width: 75%/);
+		await enter(page, 'Estimate', '1h');
+		await expect(bar('estimate')).toHaveAttribute('style', /width: 12.5%/);
+		await expect(bar('spent')).toHaveAttribute('style', /width: 25%/);
+		await expect(bar('remaining')).toHaveAttribute('style', /width: 75%/);
+		await planning(page).screenshot({ path: testInfo.outputPath(`effort-bars-${view}.png`) });
+		await page.emulateMedia({colorScheme:'dark'});
+		await planning(page).screenshot({ path: testInfo.outputPath(`effort-bars-dark-${view}.png`) });
+		state.summaries['EP-1'].own = { estimate_minutes: 0, spent_minutes: 0, remaining_minutes: 0 };
+		state.refresh();
+		for (const kind of ['estimate', 'spent', 'remaining']) await expect(bar(kind)).toHaveCSS('width', '0px');
+	});
+}

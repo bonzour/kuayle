@@ -24,19 +24,28 @@ Stima assente e zero sono distinti; residuo assente è visualizzato zero con
 stima meno consuntivo, con minimo zero. Cambiare o rimuovere la stima non cambia
 un residuo già impostato.
 
-**Totale delle issue visibili** somma i valori propri e quelli dei discendenti
-accessibili a ogni profondità. I totali sono in sola lettura e segnalano i dati
-mancanti; non indicano quante issue siano escluse per privacy. Da disabilitato,
+**Effort** mostra soltanto i valori propri della issue. La scheda separata
+**Effort totale** compare quando almeno un discendente visibile ha lavoro
+registrato e somma i valori propri e quelli dei discendenti accessibili a ogni
+profondità. I totali sono in sola lettura e segnalano i dati mancanti; non indicano
+quante issue siano escluse per privacy. Entrambe le schede mostrano tre barre:
+stima nel colore principale del tema, consuntivo verde e residuo ambra. La scala
+comune di ciascuna scheda è il maggiore tra stima e consuntivo più residuo;
+stime assenti e valori zero mantengono la barra vuota. Da disabilitato,
 il riepilogo senza dati propri o aggregati viene nascosto.
 
-**WORK LOG** è sotto **ACTIVITY**, espandibile e nello stesso stile. Raccoglie
+**WORK LOG** è sotto **ACTIVITY**, chiuso per impostazione predefinita ed
+espandibile nello stesso stile. Raccoglie
 le operazioni Efforts prima mostrate in Activity: stima, registrazioni e sole
 correzioni manuali del residuo. Sono escluse le variazioni automatiche dovute a
 stima, worklog, chiusura o riattivazione; restano conservate nello storico server.
-Il comando per mostrare gli eventi precedenti è sopra le righe. La sottosezione
-richiudibile **Registrazioni** conserva l’elenco operativo, con pagine da 50
-ordinate per data lavoro e inserimento decrescenti, titolare, durata, descrizione,
-«inserito da» nelle deleghe e azioni di modifica/eliminazione.
+All’apertura mostra soltanto l’evento più recente; il comando per mostrare gli
+eventi precedenti è sopra la riga. «Mostra meno» ripristina il singolo evento.
+La sottosezione **Registrazioni / Entries** è rimossa. Dettagli prima/dopo,
+titolare, data, durata, descrizione e «inserito da» restano negli eventi.
+Modifica ed eliminazione sono disponibili sull’ultimo evento di ogni worklog
+ancora esistente, secondo i permessi correnti. Prima di aprire il dialogo si
+rilegge il worklog attuale, anche oltre le prime 50 registrazioni.
 
 «Registra lavoro» propone la data corrente riletta dal server nel fuso workspace.
 I campi **Dal/Al** includono entrambi gli estremi e applicano lo stesso effort
