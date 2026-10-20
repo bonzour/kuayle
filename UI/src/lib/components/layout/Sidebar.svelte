@@ -60,7 +60,8 @@
 		Trash2,
 		Info,
 		CircleQuestionMark,
-		BarChart3
+		BarChart3,
+		CalendarClock
 	} from 'lucide-svelte';
 
 	let {
@@ -725,6 +726,15 @@
 				>
 					<BarChart3 size={16} class="shrink-0" />
 					<span class="truncate">{m['sidebar.insights']()}</span>
+				</a>
+				<a
+					href="/{slug}/timesheet"
+					class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(`/${slug}/timesheet`)
+						? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+				>
+					<CalendarClock size={16} class="shrink-0" />
+					<span class="truncate">{m['timesheet.title']()}</span>
 				</a>
 				{#if canManageDevMachines}
 				<a

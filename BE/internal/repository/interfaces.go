@@ -153,6 +153,12 @@ type IssueHistoryRepo interface {
 	ListByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.IssueHistory, error)
 }
 
+type TimesheetRepo interface {
+	Options(context.Context, dto.TimesheetOptionsParams) (*dto.TimesheetOptionsResponse, error)
+	Grid(context.Context, dto.TimesheetReadParams) (*dto.TimesheetGridResponse, error)
+	Worklogs(context.Context, dto.TimesheetReadParams) (*dto.TimesheetWorklogsResponse, error)
+}
+
 // Direct Efforts writes are exposed to sessions.
 type EffortRepo interface {
 	SetEstimate(context.Context, uuid.UUID, uuid.UUID, dto.SetEffortEstimateRequest) (*EffortMutationResult, error)

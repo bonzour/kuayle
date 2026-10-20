@@ -134,6 +134,7 @@ func main() {
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo, projectRepo, cycleRepo, relationSvc)
 	labelH := handler.NewLabelHandler(labelSvc)
 	effortH := handler.NewEffortHandler(effortSvc, issueRepo)
+	timesheetH := handler.NewTimesheetHandler(service.NewTimesheetService(repository.NewTimesheetRepository(db)))
 	projectH := handler.NewProjectHandler(projectSvc)
 	notifH := handler.NewNotificationHandler(notifSvc)
 	wsH := handler.NewWSHandler(hub)
@@ -219,6 +220,7 @@ func main() {
 		team:              teamH,
 		issue:             issueH,
 		effort:            effortH,
+		timesheet:         timesheetH,
 		label:             labelH,
 		project:           projectH,
 		notif:             notifH,

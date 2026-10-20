@@ -349,6 +349,28 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NotEqual(t, historicalUser, importedOwner)
 	require.Equal(t, literalUUID, importedText)
 	require.Equal(t, 120, importedDuration)
+	timesheets := repository.NewTimesheetRepository(db)
+	readContext := domain.WithAccess(context.Background(), domain.Access{UserID: userID})
+	readParams := dto.TimesheetReadParams{TimesheetOptionsParams: dto.TimesheetOptionsParams{
+		Workspaces: dto.TimesheetSelection{IDs: []uuid.UUID{targetWorkspaceID}},
+		Teams:      dto.TimesheetSelection{All: true}, Projects: dto.TimesheetSelection{All: true},
+	}, Period: "week", From: "2019-12-30", To: "2020-01-05", ReferenceWorkspaceID: targetWorkspaceID, Page: 1}
+	for _, mode := range []string{"person", "project", "workspace", "team"} {
+		readParams.Mode = mode
+		grid, err := timesheets.Grid(readContext, readParams)
+		require.NoError(t, err)
+		require.EqualValues(t, 120, grid.TotalMinutes)
+		require.Len(t, grid.People, 1)
+		require.Equal(t, importedOwner, grid.People[0].ID)
+		require.False(t, grid.People[0].Available)
+		require.Nil(t, grid.People[0].Name)
+	}
+	readParams.Mode = "person"
+	readParams.Workspaces.IDs = []uuid.UUID{workspaceID, targetWorkspaceID}
+	combined, err := timesheets.Grid(readContext, readParams)
+	require.NoError(t, err)
+	require.EqualValues(t, 240, combined.TotalMinutes)
+	require.Len(t, combined.Groups, 2)
 	var historicalMembers int
 	require.NoError(t, db.Get(&historicalMembers, `SELECT count(*) FROM workspace_members WHERE user_id=$1`, importedOwner))
 	require.Zero(t, historicalMembers)
@@ -544,6 +566,12 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, legacySettings.Enabled)
 	require.Equal(t, "Europe/Rome", legacySettings.Timezone)
+	readParams.Workspaces.IDs = []uuid.UUID{legacyID}
+	readParams.ReferenceWorkspaceID = legacyID
+	legacyGrid, err := timesheets.Grid(readContext, readParams)
+	require.NoError(t, err)
+	require.Empty(t, legacyGrid.Groups)
+	require.Zero(t, legacyGrid.TotalMinutes)
 	missingSlug := "transfer-missing-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
 	missingEmail := "missing-" + uuid.New().String() + "@example.test"
 	missingArchive := mutateWorkspaceArchive(t, archive.Path, func(manifest *dto.WorkspaceExportManifest, data *dto.WorkspaceTransferData) {

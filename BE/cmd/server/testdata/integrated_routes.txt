@@ -32,6 +32,9 @@ GET /api/public/share/:token
 GET /api/public/share/:token/issues
 GET /api/system/update-status
 GET /api/workspaces
+GET /api/timesheets
+GET /api/timesheets/options
+GET /api/timesheets/worklogs
 GET /api/workspaces/:slug
 GET /api/workspaces/:slug/agent-runs
 GET /api/workspaces/:slug/agent-runs/:agentRunId

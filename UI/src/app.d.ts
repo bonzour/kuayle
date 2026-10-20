@@ -5,7 +5,9 @@ declare global {
 		// interface Error {}
 		// interface Locals {}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+			timesheet?: import('$lib/types/timesheets').TimesheetHistoryState;
+		}
 		// interface Platform {}
 	}
 }

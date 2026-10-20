@@ -42,6 +42,7 @@ type appHandlers struct {
 	team              *handler.TeamHandler
 	issue             *handler.IssueHandler
 	effort            *handler.EffortHandler
+	timesheet         *handler.TimesheetHandler
 	label             *handler.LabelHandler
 	project           *handler.ProjectHandler
 	notif             *handler.NotificationHandler
@@ -113,6 +114,11 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodDelete, "/tokens/:id", h.token.Revoke)
 	sessionOnly(api, http.MethodGet, "/system/update-status", h.system.UpdateStatus)
 	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate)
+
+	// Timesheet selectors authorize every workspace independently in the repository.
+	scoped(api, http.MethodGet, "/timesheets/options", h.timesheet.Options, "efforts:read")
+	scoped(api, http.MethodGet, "/timesheets", h.timesheet.Grid, "efforts:read")
+	scoped(api, http.MethodGet, "/timesheets/worklogs", h.timesheet.Worklogs, "efforts:read")
 
 	// Workspaces (no workspace context needed for list/create)
 	scoped(api, http.MethodGet, "/workspaces", h.workspace.List, "workspaces:read")

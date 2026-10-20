@@ -8,6 +8,7 @@ import (
 )
 
 type tokenScopesKey struct{}
+type tokenWorkspacesKey struct{}
 type effortSystemKey struct{}
 
 var ErrEffortForbidden = errors.New("Efforts operation is forbidden")
@@ -16,6 +17,16 @@ var ErrEffortForbidden = errors.New("Efforts operation is forbidden")
 // scope list marks a token; absence of this context value denotes a session.
 func WithTokenScopes(ctx context.Context, scopes []string) context.Context {
 	return context.WithValue(ctx, tokenScopesKey{}, slices.Clone(scopes))
+}
+
+// Nil means unrestricted; a non-nil empty allowlist permits no workspace.
+func WithTokenWorkspaces(ctx context.Context, slugs []string) context.Context {
+	return context.WithValue(ctx, tokenWorkspacesKey{}, slices.Clone(slugs))
+}
+
+func TokenWorkspaces(ctx context.Context) []string {
+	slugs, _ := ctx.Value(tokenWorkspacesKey{}).([]string)
+	return slices.Clone(slugs)
 }
 
 func IsToken(ctx context.Context) bool {

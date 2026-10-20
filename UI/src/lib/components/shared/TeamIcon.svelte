@@ -25,7 +25,7 @@
 		size = 16,
 		class: className = 'shrink-0'
 	}: {
-		team: Team;
+		team: Pick<Team, 'id' | 'key' | 'icon' | 'color'>;
 		size?: number;
 		class?: string;
 	} = $props();

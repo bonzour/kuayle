@@ -89,6 +89,7 @@ func authenticatePAT(c echo.Context, patRepo repository.PersonalAccessTokenRepo,
 	c.Set(string(UserIDKey), token.UserID)
 	c.SetRequest(c.Request().WithContext(domain.WithAccess(c.Request().Context(), domain.Access{UserID: token.UserID})))
 	c.SetRequest(c.Request().WithContext(domain.WithTokenScopes(c.Request().Context(), []string(token.Scopes))))
+	c.SetRequest(c.Request().WithContext(domain.WithTokenWorkspaces(c.Request().Context(), []string(token.WorkspaceSlugs))))
 	c.Set(TokenScopesKey, []string(token.Scopes))
 	c.Set(TokenWorkspacesKey, []string(token.WorkspaceSlugs))
 
