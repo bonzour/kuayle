@@ -217,3 +217,46 @@ personale il filtro persone viene azzerato e il titolare resta il chiamante.
 Il riferimento temporale viene rivalidato nell'ambito personale e può quindi
 restare un workspace dove il chiamante è member/guest. Lo stato di cronologia
 include persone e modalità; i parametri URL condivisibili rimangono a EP-04.
+
+## Navigazione UI dell'incremento EP-04
+
+L'URL sostituisce lo stato di sessione descritto per EP-02/03 come fonte della
+vista. Il percorso resta `/{workspaceSlug}/timesheet`; lo slug fornisce il
+contesto iniziale, non restringe né autorizza i dati.
+
+| Parametro | Significato |
+| --- | --- |
+| `mode` | `personal`, `person`, `project`, `workspace`, `team`; predefinito `personal`. |
+| `period` | `week` o `month`; predefinito `week`. |
+| `from`, `to` | Coppia di date `YYYY-MM-DD` che descrive un'intera settimana lunedì–domenica o un intero mese. Se assenti, periodo corrente secondo `today` del riferimento. |
+| `reference_workspace_id` | Workspace di riferimento, anche esterno alla selezione dati amministrativa purché accessibile nell'ambito personale. Se assente, workspace di apertura o primo accessibile. |
+| `workspace_ids`, `team_ids`, `project_ids` | ID separati da virgole; omissione o `all` significa Tutti, valore vuoto significa selezione vuota. Solo i progetti ammettono `none` per Senza progetto. |
+| `owner_user_ids` | Stessa semantica delle selezioni, solo nelle viste amministrative. Nel personale viene rimosso e il titolare resta l'utente autenticato. |
+| `page` | Pagina dei gruppi, predefinita 1; cambia solo la pagina, non i totali. |
+
+Dopo la risoluzione del riferimento e del periodo l'URL esplicita la vista.
+Parametri estranei alla vista e frammento vengono conservati, senza inoltrarli
+alle API. Parametri noti duplicati, periodi incompleti o non canonici e selezioni
+malformate mostrano un errore tradotto; il ripristino dei default richiede
+un'azione esplicita. Le API mantengono la validazione autorevole degli ID.
+
+SvelteKit `goto` crea una voce per ogni cambiamento utente di modalità, periodo,
+filtro o pagina, mantenendo focus e scorrimento. Inizializzazione, correzione
+della pagina e riallineamenti di accesso sostituiscono la voce corrente.
+Refresh, apertura/chiusura e paginazione del dialogo non aggiungono voci.
+I cambi ai filtri, al periodo o alla modalità riportano la pagina dei gruppi a 1.
+
+Apertura, reload e avanti/indietro rileggono selettori e dati autorizzati.
+Revoche rimuovono le sole selezioni incompatibili senza trasformare una lista
+vuota in Tutti; un downgrade elimina la modalità amministrativa e il filtro
+persone, senza ampliare ai workspace personali estranei. Il riferimento revocato
+viene sostituito esplicitamente conservando le date scelte. Dati e dialoghi
+precedenti vengono invalidati prima della lettura; risposte obsolete non
+riscrivono né risultati né URL.
+
+I cinque tab riusano le primitive Insights, hanno attivazione manuale con
+Invio/Spazio e mostrano soltanto le modalità ammesse dal server. I link alle
+issue usano il workspace della riga; il ritorno browser riapre l'URL filtrato.
+La chiusura del dettaglio riporta il focus alla cella o, se rimossa, al titolo
+della pagina. La griglia mensile mantiene lo scorrimento orizzontale al proprio
+interno; barra dei tab e dettaglio sono utilizzabili sui viewport stretti.

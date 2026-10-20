@@ -1824,5 +1824,8 @@
 	"timesheet.detail_pages": "Worklog pages",
 	"timesheet.close": "Close",
 	"timesheet.no_results": "No work matches the selected filters.",
-	"timesheet.no_work": "No work recorded in this period."
+	"timesheet.no_work": "No work recorded in this period.",
+	"timesheet.retry": "Try again",
+	"timesheet.invalid_url": "This Timesheet URL contains invalid parameters.",
+	"timesheet.reset_view": "Reset view"
 }

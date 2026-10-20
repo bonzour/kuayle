@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
-test('shows workspace analytics and opens the explorer', async ({ page }) => {
+for (const theme of ['light', 'dark'] as const) {
+test(`shows workspace analytics and opens the explorer in ${theme} theme`, async ({ page }, testInfo) => {
 	const teamId = '00000000-0000-0000-0000-000000000010';
 	let scopedOverviewRequests = 0;
 	const issueListQueries: URLSearchParams[] = [];
@@ -30,7 +31,7 @@ test('shows workspace analytics and opens the explorer', async ({ page }) => {
 				json: {
 					font_size: 'default',
 					pointer_cursors: true,
-					theme_mode: 'dark',
+					theme_mode: theme,
 					light_theme: 'light',
 					dark_theme: 'dark',
 					workflow_sort_mode: 'default',
@@ -212,6 +213,7 @@ test('shows workspace analytics and opens the explorer', async ({ page }) => {
 	await expect(page.getByText('42', { exact: true })).toBeVisible();
 	await expect(page.getByText('Completion rate')).toBeVisible();
 	await expect(page.getByText('57%')).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath(`output/playwright/ep04-insights-desktop-${theme}.png`), fullPage: true });
 	await page.getByLabel('Team scope').click();
 	await page.getByRole('option', { name: 'Engineering' }).click();
 	await expect(page).toHaveURL(new RegExp(`team=${teamId}`));
@@ -260,5 +262,7 @@ test('shows workspace analytics and opens the explorer', async ({ page }) => {
 	await page.goto('/test/insights?tab=explore');
 	await expect(page.getByRole('tab', { name: 'Explore' })).toBeVisible();
 	await expect(page.getByLabel('Measure')).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath(`output/playwright/ep04-insights-mobile-${theme}.png`), fullPage: true });
 	await expect.poll(() => pageErrors.map((error) => error.message)).toEqual([]);
 });
+}

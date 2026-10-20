@@ -1,8 +1,9 @@
 <script lang="ts">
 	let {
 		message = 'Something went wrong',
+		retryLabel = 'Try again',
 		onretry
-	}: { message?: string; onretry?: () => void } = $props();
+	}: { message?: string; retryLabel?: string; onretry?: () => void } = $props();
 </script>
 
 <div class="flex h-64 flex-col items-center justify-center gap-3">
@@ -10,9 +11,9 @@
 	{#if onretry}
 		<button
 			onclick={() => onretry?.()}
-			class="rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+			class="rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-2 focus-visible:outline-ring"
 		>
-			Try again
+			{retryLabel}
 		</button>
 	{/if}
 </div>

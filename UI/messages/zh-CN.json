@@ -1824,5 +1824,8 @@
 	"timesheet.detail_pages": "工时记录分页",
 	"timesheet.close": "关闭",
 	"timesheet.no_results": "没有符合所选筛选条件的工时记录。",
-	"timesheet.no_work": "此期间没有工时记录。"
+	"timesheet.no_work": "此期间没有工时记录。",
+	"timesheet.retry": "重试",
+	"timesheet.invalid_url": "此工时表网址包含无效参数。",
+	"timesheet.reset_view": "重置视图"
 }

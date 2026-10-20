@@ -13,6 +13,15 @@
 		value: TimesheetPeriod; reference: TimesheetWorkspaceOption; disabled?: boolean; onchange: (value: TimesheetPeriod) => void;
 	} = $props();
 	let open = $state(false);
+	let calendar = $state<HTMLDivElement | null>(null);
+	let trigger = $state<HTMLButtonElement | null>(null);
+	let returnFocus = $state(false);
+	$effect(() => {
+		if (returnFocus && !open && !disabled) {
+			returnFocus = false;
+			trigger?.focus();
+		}
+	});
 </script>
 
 <div class="space-y-2">
@@ -23,11 +32,14 @@
 		<Popover.Root bind:open>
 			<Popover.Trigger>
 				{#snippet child({ props })}
-					<Button {...props} variant="outline" size="sm" {disabled} aria-label={m['timesheet.select_period']()}><CalendarDays size={16} />{formatTimesheetDate(value.from, getLocale(), { year: 'numeric' })} – {formatTimesheetDate(value.to, getLocale(), { year: 'numeric' })}</Button>
+					<Button {...props} bind:ref={trigger} variant="outline" size="sm" {disabled} aria-label={m['timesheet.select_period']()}><CalendarDays size={16} />{formatTimesheetDate(value.from, getLocale(), { year: 'numeric' })} – {formatTimesheetDate(value.to, getLocale(), { year: 'numeric' })}</Button>
 				{/snippet}
 			</Popover.Trigger>
-			<Popover.Content align="start" class="w-auto p-0">
-				<Calendar type="single" value={parseDate(value.from)} weekStartsOn={1} onValueChange={(day) => { if (day) { onchange(periodForDate(value.period, day.toString())); open = false; } }} />
+			<Popover.Content align="start" class="w-auto p-0" onOpenAutoFocus={(event) => {
+				const day = calendar?.querySelector<HTMLElement>('[data-bits-day][data-focused]');
+				if (day) { event.preventDefault(); day.focus(); }
+			}} onCloseAutoFocus={(event) => { if (returnFocus) event.preventDefault(); }}>
+				<Calendar bind:ref={calendar} type="single" value={parseDate(value.from)} placeholder={parseDate(value.from)} weekStartsOn={1} onValueChange={(day) => { if (day) { returnFocus = true; onchange(periodForDate(value.period, day.toString())); open = false; } }} />
 			</Popover.Content>
 		</Popover.Root>
 		<Button variant="outline" size="icon-sm" aria-label={m['timesheet.next_period']()} {disabled} onclick={() => onchange(movePeriod(value, 1))}><ChevronRight size={16} /></Button>

@@ -14,7 +14,7 @@ const baseWorkspaces = [
 const selector = (page: Page, label: string) => page.getByRole('button', { name: label, exact: true }).and(page.locator('[data-slot="select-trigger"]'));
 const scope = (page: Page) => page.getByRole('region', { name: 'Effective scope' });
 
-async function fixture(page: Page, admin = true, theme: 'light' | 'dark' = 'dark', referenceToday = '2026-10-20', extraWorkspaceCount = 0, adminPeopleCount = 0) {
+async function fixture(page: Page, admin = true, theme: 'light' | 'dark' = 'dark', referenceToday = '2026-10-20', extraWorkspaceCount = 0, adminPeopleCount = 0, entry = '/a/timesheet', locale = 'en') {
 	const workspaces = [...baseWorkspaces, ...Array.from({ length: extraWorkspaceCount }, (_, i) => ({
 		...baseWorkspaces[0], id: `00000000-0000-0000-0001-${String(i + 1).padStart(12, '0')}`, name: `Extra ${i}`, slug: `extra-${i}`, can_administer: false
 	}))];
@@ -27,7 +27,7 @@ async function fixture(page: Page, admin = true, theme: 'light' | 'dark' = 'dark
 		dataDelay: null as null | { entered: () => void; wait: Promise<void> },
 		detailDelay: null as null | { entered: () => void; wait: Promise<void> },
 		gridRequests: [] as URL[], detailRequests: [] as URL[],
-		dataFail: false, detailFail: false, emptyPeriod: false
+		dataFail: false, detailFail: false, emptyPeriod: false, invalidRead: false, longDetailText: false
 	};
 	const logDate = '2026-10-20';
 	const records = [
@@ -48,6 +48,7 @@ async function fixture(page: Page, admin = true, theme: 'light' | 'dark' = 'dark
 	async function readTimesheet(route: Route, url: URL) {
 		const detail = url.pathname.endsWith('/worklogs');
 		(detail ? state.detailRequests : state.gridRequests).push(url);
+		if (state.invalidRead) return route.fulfill({ status: 400, json: { error: { code: 'INVALID_INPUT' } } });
 		if (state.dataFail || (detail && state.detailFail)) return route.fulfill({ status: 500, json: { error: { code: 'INTERNAL_ERROR' } } });
 		const mode = (url.searchParams.get('mode') ?? 'personal') as TimesheetMode;
 		if (mode !== 'personal' && !state.admin) return route.fulfill({ status: 403, json: { error: { code: 'FORBIDDEN' } } });
@@ -76,9 +77,9 @@ async function fixture(page: Page, admin = true, theme: 'light' | 'dark' = 'dark
 		let response: TimesheetGrid | TimesheetWorklogs;
 		if (detail) {
 			response = { ...base, total_count: filtered.length, has_more: pageNumber * 50 < filtered.length, data: filtered.slice((pageNumber - 1) * 50, pageNumber * 50).map(r => ({
-				id: r.id, issue_id: r.issueId, issue_identifier: r.issue, issue_title: `Work on ${r.issue}`, workspace: workspaces.find(w => w.id === r.workspaceId)!, team: teams.find(t => t.workspace_id === r.workspaceId)!,
-				owner: person(r.ownerId), operator: { id: 'admin', available: true, name: 'Workspace Admin', display_name: null },
-				work_date: logDate, duration_minutes: r.minutes, description: `Registration ${r.id}`, created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z'
+				id: r.id, issue_id: r.issueId, issue_identifier: r.issue, issue_title: state.longDetailText ? 'LongTitle'.repeat(35) : `Work on ${r.issue}`, workspace: workspaces.find(w => w.id === r.workspaceId)!, team: teams.find(t => t.workspace_id === r.workspaceId)!,
+				owner: state.longDetailText ? { ...person(r.ownerId), name: 'LongName'.repeat(25) } : person(r.ownerId), operator: { id: 'admin', available: true, name: 'Workspace Admin', display_name: null },
+				work_date: logDate, duration_minutes: r.minutes, description: state.longDetailText ? 'LongDescription'.repeat(60) : `Registration ${r.id}`, created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z'
 			})) };
 		} else {
 			const groups: TimesheetGroup[] = [];
@@ -116,7 +117,7 @@ async function fixture(page: Page, admin = true, theme: 'light' | 'dark' = 'dark
 		if (delay) { if (detail) state.detailDelay = null; else state.dataDelay = null; delay.entered(); await delay.wait; }
 		return route.fulfill({ json: response });
 	}
-	await page.addInitScript(() => localStorage.setItem('PARAGLIDE_LOCALE', 'en'));
+	await page.addInitScript((locale) => localStorage.setItem('PARAGLIDE_LOCALE', locale), locale);
 	await page.routeWebSocket('**/ws', () => {});
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/**', async (route: Route) => {
@@ -164,13 +165,19 @@ async function fixture(page: Page, admin = true, theme: 'light' | 'dark' = 'dark
 		if (path.endsWith('/issues')) return route.fulfill({ json: { data: [], total_count: 0, page: 1, per_page: 50, has_more: false } });
 		return route.fulfill({ json: [] });
 	});
-	await page.goto('/a/timesheet');
-	await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+	await page.goto(entry);
+	await expect(page.getByRole('button', { name: locale === 'it' ? 'Aggiorna' : 'Refresh', exact: true })).toBeEnabled();
 	await expect(page.locator('html')).toHaveClass(new RegExp(`\\b${theme}\\b`));
 	return state;
 }
 
 async function choose(page: Page, label: string, name: string) {
+	if (label === 'View') {
+		await page.getByRole('tab', { name, exact: true }).click();
+		await expect(page.getByRole('tab', { name, exact: true })).toHaveAttribute('aria-selected', 'true');
+		await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+		return;
+	}
 	await selector(page, label).click();
 	await page.getByRole('option', { name, exact: true }).click();
 	await page.keyboard.press('Escape');
@@ -214,9 +221,8 @@ test('multiple filters retain namesakes and remove only incompatible children', 
 
 test('member/guest modes and empty scopes stay explicit', async ({ page }) => {
 	const state = await fixture(page, false);
-	await selector(page, 'View').click();
-	await expect(page.getByRole('option', { name: 'By person', exact: true })).toHaveCount(0);
-	await page.keyboard.press('Escape');
+	await expect(page.getByRole('tab')).toHaveCount(1);
+	await expect(page.getByRole('tab', { name: 'By person', exact: true })).toHaveCount(0);
 	await choose(page, 'Workspaces', 'All');
 	await expect(page.getByText('No workspace is selected. Select a workspace to continue.')).toBeVisible();
 	state.allowed = [];
@@ -242,7 +248,7 @@ test('a downgrade removes administrative modes and preserves the selected worksp
 	await choose(page, 'View', 'By team');
 	state.admin = false;
 	await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-	await expect(selector(page, 'View')).toContainText('My timesheet');
+	await expect(page.getByRole('tab', { selected: true })).toContainText('My timesheet');
 	await expect(scope(page)).toContainText('Workspace A (a)');
 	await expect(scope(page)).not.toContainText('Workspace B (b)');
 	await expect(page.getByRole('status')).toContainText('current access');
@@ -268,10 +274,12 @@ test('failed reads show an error and retry; old responses cannot restore the old
 	await choose(page, 'Workspaces', 'Workspace B (b)');
 	// Multiple selection now contains A+B. The delayed A-only response must not win.
 	await expect(scope(page)).toContainText('Workspace B (b)');
+	const currentUrl = page.url();
 	const staleResponse = page.waitForResponse((response) => new URL(response.url()).searchParams.get('workspace_ids') === a);
 	release();
 	await staleResponse;
 	await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+	await expect(page).toHaveURL(currentUrl);
 	await expect.poll(() => selector(page, 'Workspaces').textContent()).toContain('2 selected');
 	await expect(scope(page)).toContainText('Workspace B (b)');
 });
@@ -363,7 +371,7 @@ test('all detail pages remain reachable and preserve full totals on mobile', asy
 	await dialog.getByRole('button', { name: 'Close', exact: true }).last().click();
 });
 
-test('returning from the correct workspace issue restores session filters and period', async ({ page }) => {
+test('returning from the correct workspace issue restores URL filters and period', async ({ page }) => {
 	const state = await fixture(page);
 	await choose(page, 'Workspaces', 'Workspace B (b)');
 	await page.getByRole('button', { name: 'Month', exact: true }).click();
@@ -372,7 +380,7 @@ test('returning from the correct workspace issue restores session filters and pe
 	await page.getByRole('dialog').getByRole('link').first().click();
 	await expect(page).toHaveURL(/\/b\/issue\/B-1$/);
 	await page.goBack();
-	await expect(page).toHaveURL(/\/a\/timesheet$/);
+	await expect(page).toHaveURL(/\/a\/timesheet\?/);
 	await expect(page.getByRole('table').locator('thead th')).toHaveCount(33);
 	await expect(scope(page)).not.toContainText('Workspace A (a)');
 	expect(state.gridRequests.at(-1)!.searchParams.get('workspace_ids')).toBe(b);
@@ -430,8 +438,10 @@ test('late grid/detail responses cannot restore an obsolete selection or dialog'
 	await waiting;
 	await choose(page, 'Workspaces', 'Workspace B (b)');
 	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h 51m');
+	const currentUrl = page.url();
 	const stale = page.waitForResponse(res => new URL(res.url()).pathname === '/api/timesheets' && new URL(res.url()).searchParams.get('workspace_ids') === a);
 	release(); await stale;
+	await expect(page).toHaveURL(currentUrl);
 	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h 51m');
 	let releaseDetail!: () => void;
 	let enteredDetail!: () => void;
@@ -521,7 +531,7 @@ test('opening a person focuses the same report and cell detail includes only tha
  const state = await fixture(page);
  await choose(page,'View','By person');
  await page.getByRole('button',{name:'Open timesheet · Test User · 00000020',exact:true}).click();
- await expect(selector(page,'View')).toContainText('By person');
+ await expect(page.getByRole('tab', { selected: true })).toContainText('By person');
  await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
  expect(state.gridRequests.at(-1)!.searchParams.get('owner_user_ids')).toBe(otherId);
  expect(state.gridRequests.at(-1)!.searchParams.get('workspace_ids')).toBe(a);
@@ -547,7 +557,7 @@ test('administrative history restores people, period and grouping after visiting
  await page.getByRole('dialog').getByRole('link').first().click();
  await expect(page).toHaveURL(/\/a\/issue\/A-1$/);
  await page.goBack();
- await expect(selector(page,'View')).toContainText('By person');
+ await expect(page.getByRole('tab', { selected: true })).toContainText('By person');
  await expect(page.getByRole('table').locator('thead th')).toHaveCount(33);
  await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
  expect(state.gridRequests.at(-1)!.searchParams.get('owner_user_ids')).toBe(otherId);
@@ -592,7 +602,7 @@ test('administrative failures and downgrades remove totals and recover within th
  state.admin=false;
  await page.getByRole('button',{name:'A-1 · 2026-10-20 · 2h',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
- await expect(selector(page,'View')).toContainText('My timesheet');
+ await expect(page.getByRole('tab', { selected: true })).toContainText('My timesheet');
  await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
  await expect(scope(page)).not.toContainText('Workspace B (b)');
 });
@@ -621,4 +631,242 @@ test('an administrative report retains a personal reference outside its data sco
  expect(state.gridRequests.at(-1)!.searchParams.get('reference_workspace_id')).toBe(b);
  expect(state.gridRequests.at(-1)!.searchParams.get('workspace_ids')).toBe(a);
  await expect(page.getByRole('table').locator('tfoot')).toContainText('4h 5m');
+});
+
+test('a direct administrative URL and reload restore the full view without session state', async ({ page }) => {
+	const params = new URLSearchParams({ mode: 'project', period: 'month', from: '2026-10-01', to: '2026-10-31', reference_workspace_id: b, workspace_ids: a, team_ids: 'team-0', project_ids: 'project-0', owner_user_ids: userId, page: '1' });
+	const state = await fixture(page, true, 'dark', '2026-10-20', 0, 0, `/a/timesheet?${params}`);
+	const assertView = async () => {
+		await expect(page.getByRole('tab', { name: 'By project', exact: true })).toHaveAttribute('aria-selected', 'true');
+		await expect(page.getByRole('tabpanel', { name: 'By project', exact: true })).toBeVisible();
+		await expect(page.getByRole('table').locator('thead th')).toHaveCount(33);
+		await expect(page.getByRole('table').locator('tfoot')).toContainText('1h 30m');
+		await expect(scope(page)).not.toContainText('Workspace B');
+		for (const [key, value] of params) expect(state.gridRequests.at(-1)!.searchParams.get(key)).toBe(value);
+	};
+	await assertView();
+	expect(state.gridRequests).toHaveLength(1);
+	const saved = page.url();
+	await page.reload();
+	await assertView();
+	await expect(page).toHaveURL(saved);
+	expect(state.gridRequests).toHaveLength(2);
+});
+
+test('back and forward restore group page, period and filters without creating new entries', async ({ page }) => {
+	const state = await fixture(page, true, 'dark', '2026-10-20', 50);
+	const urls = [page.url()];
+	await page.getByRole('button', { name: 'Next', exact: true }).click();
+	await expect(page.getByText('Page 2 of 2', { exact: true })).toBeVisible();
+	urls.push(page.url());
+	await page.getByRole('button', { name: 'Month', exact: true }).click();
+	await expect(page.getByText('Page 1 of 2', { exact: true })).toBeVisible();
+	urls.push(page.url());
+	await choose(page, 'Workspaces', 'Workspace B (b)');
+	urls.push(page.url());
+	await choose(page, 'Projects', 'No project');
+	await expect(page.getByText('No work matches the selected filters.')).toBeVisible();
+	urls.push(page.url());
+	for (let i = urls.length - 2; i >= 0; i--) {
+		const before = state.gridRequests.length;
+		await page.goBack();
+		await expect(page).toHaveURL(urls[i]);
+		await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+		expect(state.gridRequests.length).toBeGreaterThan(before);
+		expect(state.gridRequests.at(-1)!.searchParams.get('page')).toBe(i === 1 ? '2' : '1');
+		expect(state.gridRequests.at(-1)!.searchParams.get('period')).toBe(i >= 2 ? 'month' : 'week');
+	}
+	for (const url of urls.slice(1)) {
+		await page.goForward();
+		await expect(page).toHaveURL(url);
+		await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+	}
+	const count = await page.evaluate(() => history.length);
+	await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+	expect(await page.evaluate(() => history.length)).toBe(count);
+});
+
+test('mode and people history restores filters and never caches revoked administrative data', async ({ page }) => {
+	const state = await fixture(page);
+	await choose(page, 'View', 'By person');
+	await choose(page, 'People', 'Test User · 00000020');
+	const personUrl = page.url();
+	await choose(page, 'View', 'By project');
+	const projectUrl = page.url();
+	await page.goBack();
+	await expect(page).toHaveURL(personUrl);
+	await expect(page.getByRole('tab', { name: 'By person', exact: true })).toHaveAttribute('aria-selected', 'true');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+	await page.goForward();
+	await expect(page).toHaveURL(projectUrl);
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+	state.admin = false;
+	await page.goBack();
+	await expect(page.getByRole('tab')).toHaveCount(1);
+	await expect(page.getByRole('tab', { selected: true })).toHaveText('My timesheet');
+	await expect(page.getByRole('status')).toContainText('current access');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+	await expect(page.getByRole('table')).not.toContainText('Test User');
+	expect(new URL(page.url()).searchParams.get('mode')).toBe('personal');
+	expect(new URL(page.url()).searchParams.has('owner_user_ids')).toBe(false);
+	expect(state.gridRequests.at(-1)!.searchParams.get('workspace_ids')).toBe(a);
+});
+
+test('revoked URL selections become empty and a replaced reference preserves historic dates', async ({ page }) => {
+	const params = new URLSearchParams({ mode: 'personal', period: 'month', from: '2024-02-01', to: '2024-02-29', reference_workspace_id: b, workspace_ids: b, team_ids: 'team-1', project_ids: 'project-1,none' });
+	const state = await fixture(page, true, 'dark', '2026-10-20', 0, 0, `/a/timesheet?${params}`);
+	state.allowed = [a];
+	await page.reload();
+	await expect(page.getByText('No workspace is selected. Select a workspace to continue.')).toBeVisible();
+	await expect(page.getByRole('table')).toHaveCount(0);
+	await expect(page.getByRole('status')).toContainText('current access');
+	await expect(page.getByRole('status')).toContainText('reference workspace changed');
+	const restored = new URL(page.url()).searchParams;
+	expect(restored.get('workspace_ids')).toBe('');
+	expect(restored.get('team_ids')).toBe('');
+	expect(restored.get('project_ids')).toBe('none');
+	expect(restored.get('reference_workspace_id')).toBe(a);
+	expect(restored.get('from')).toBe('2024-02-01');
+	expect(restored.get('to')).toBe('2024-02-29');
+});
+
+test('an unauthorized administrative URL cannot expand into all personal workspaces', async ({ page }) => {
+	const state = await fixture(page, false, 'dark', '2026-10-20', 0, 0, '/a/timesheet?mode=team&workspace_ids=all');
+	await expect(page.getByRole('tab')).toHaveCount(1);
+	await expect(page.getByRole('status')).toContainText('current access');
+	await expect(page.getByText('No workspace is selected. Select a workspace to continue.')).toBeVisible();
+	expect(new URL(page.url()).searchParams.get('workspace_ids')).toBe('');
+	expect(state.gridRequests.at(-1)!.searchParams.get('workspace_ids')).toBe('');
+});
+
+test('explicit empty people and dimensions remain empty after opening and reloading a URL', async ({ page }) => {
+	const state = await fixture(page, true, 'dark', '2026-10-20', 0, 0, '/a/timesheet?mode=person&workspace_ids=&team_ids=&project_ids=none&owner_user_ids=');
+	await expect(page.getByText('No workspace is selected. Select a workspace to continue.')).toBeVisible();
+	const saved = page.url();
+	await page.reload();
+	await expect(page).toHaveURL(saved);
+	await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+	const query = state.gridRequests.at(-1)!.searchParams;
+	for (const key of ['workspace_ids', 'team_ids', 'owner_user_ids']) expect(query.get(key)).toBe('');
+	expect(query.get('project_ids')).toBe('none');
+});
+
+test('malformed URLs show an error and reset only on an explicit action', async ({ page }) => {
+	const state = await fixture(page);
+	const count = state.gridRequests.length;
+	for (const query of ['mode=unexpected', 'from=2026-10-20&to=2026-10-26', 'workspace_ids=a,', 'page=0', 'mode=person&mode=project']) {
+		await page.goto(`/a/timesheet?${query}`);
+		await expect(page.getByText('This Timesheet URL contains invalid parameters.')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Reset view', exact: true })).toBeVisible();
+		await expect(page.getByRole('table')).toHaveCount(0);
+		expect(state.gridRequests).toHaveLength(count);
+	}
+	await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h 51m');
+	expect(new URL(page.url()).searchParams.get('workspace_ids')).toBe('all');
+});
+
+test('manual tabs and the period calendar work with keyboard and retain focus', async ({ page }) => {
+	const state = await fixture(page);
+	const personal = page.getByRole('tab', { name: 'My timesheet', exact: true });
+	const personTab = page.getByRole('tab', { name: 'By person', exact: true });
+	await personal.focus();
+	await page.keyboard.press('ArrowRight');
+	await expect(personTab).toBeFocused();
+	await expect(personal).toHaveAttribute('aria-selected', 'true');
+	expect(state.gridRequests).toHaveLength(1);
+	await page.keyboard.press('Space');
+	await expect(personTab).toHaveAttribute('aria-selected', 'true');
+	await expect(page.getByRole('tabpanel', { name: 'By person', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+	await expect(personTab).toBeFocused();
+	await page.keyboard.press('End');
+	await expect(page.getByRole('tab', { name: 'By team', exact: true })).toBeFocused();
+	await page.keyboard.press('Enter');
+	await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+	const trigger = page.getByRole('button', { name: 'Select period', exact: true });
+	await trigger.focus();
+	await page.keyboard.press('Enter');
+	await expect(page.locator('[data-bits-day][data-focused]')).toBeVisible();
+	await page.keyboard.press('ArrowUp');
+	await page.keyboard.press('Enter');
+	await expect(trigger).toBeFocused();
+	await expect(page.getByText('No work recorded in this period.')).toBeVisible();
+	expect(state.gridRequests.at(-1)!.searchParams.get('from')).toBe('2026-10-12');
+});
+
+test('a removed detail cell restores focus to the page heading', async ({ page }) => {
+	const state = await fixture(page);
+	await choose(page, 'Workspaces', 'Workspace B (b)');
+	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true }).click();
+	await expect(page.getByRole('dialog')).toContainText('51 registrations');
+	state.allowed = [a];
+	await page.getByRole('dialog').getByRole('button', { name: 'Next', exact: true }).click();
+	await expect(page.getByRole('dialog')).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'Timesheet', exact: true })).toBeFocused();
+	await expect(page.getByText('No workspace is selected. Select a workspace to continue.')).toBeVisible();
+});
+
+for (const theme of ['light', 'dark'] as const) {
+	test(`monthly grid, tabs and detail fit a mobile viewport in ${theme} theme`, async ({ page }, testInfo) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const state = await fixture(page, true, theme);
+		await choose(page, 'View', 'By team');
+		await page.getByRole('button', { name: 'Month', exact: true }).click();
+		const region = page.getByRole('region', { name: 'Timesheet grid' });
+		await expect(page.getByRole('table').locator('thead th')).toHaveCount(33);
+		expect(await region.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+		await region.focus();
+		await page.keyboard.press('ArrowRight');
+		await expect.poll(() => region.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+		await page.screenshot({ path: testInfo.outputPath(`output/playwright/ep04-timesheet-mobile-${theme}.png`), fullPage: true });
+		state.longDetailText = true;
+		await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1h 30m', exact: true }).click();
+		await expect(page.getByRole('dialog')).toContainText('2 registrations');
+		const dialog = page.getByRole('dialog');
+		expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+		await expect(dialog.getByRole('button', { name: 'Close', exact: true }).last()).toBeInViewport();
+		const body = dialog.locator('ul').locator('..');
+		expect(await body.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+		await page.screenshot({ path: testInfo.outputPath(`output/playwright/ep04-timesheet-detail-${theme}.png`), fullPage: true });
+		await body.evaluate(el => el.scrollTop = el.scrollHeight);
+		await expect(dialog.getByText('Europe/Rome · Today: 2026-10-20 · Reference: Europe/Rome').last()).toBeInViewport();
+		await page.keyboard.press('Escape');
+		await expect(dialog).toHaveCount(0);
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await page.screenshot({ path: testInfo.outputPath(`output/playwright/ep04-timesheet-desktop-${theme}.png`), fullPage: true });
+	});
+}
+
+test('Timesheet errors and detail close controls are translated into Italian', async ({ page }) => {
+	const state = await fixture(page, true, 'light', '2026-10-20', 0, 0, '/a/timesheet', 'it');
+	await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1h 30m', exact: true }).click();
+	await expect(page.getByRole('dialog').getByRole('button', { name: 'Chiudi', exact: true })).toHaveCount(2);
+	await page.keyboard.press('Escape');
+	state.dataFail = true;
+	await page.getByRole('button', { name: 'Aggiorna', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Riprova', exact: true })).toBeVisible();
+	await page.goto('/a/timesheet?mode=invalid');
+	await expect(page.getByText('L’URL del Timesheet contiene parametri non validi.')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Ripristina vista', exact: true })).toBeVisible();
+});
+
+test('a page beyond the last group is replaced with a reachable URL', async ({ page }) => {
+	const state = await fixture(page, true, 'dark', '2026-10-20', 0, 0, '/a/timesheet?page=99');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h 51m');
+	expect(new URL(page.url()).searchParams.get('page')).toBe('1');
+	expect(state.gridRequests.map(url => url.searchParams.get('page'))).toEqual(['99', '1']);
+});
+
+test('backend validation errors clear totals and require an explicit reset', async ({ page }) => {
+	const state = await fixture(page);
+	state.invalidRead = true;
+	await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+	await expect(page.getByText('This Timesheet URL contains invalid parameters.')).toBeVisible();
+	await expect(page.getByRole('table')).toHaveCount(0);
+	state.invalidRead = false;
+	await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h 51m');
 });

@@ -9,10 +9,11 @@ Backlog: [Epic e Stories](../../backlog/timesheets.md).
 **Implementazione successiva all'analisi:** sono disponibili le fondazioni e i
 selettori EP-01 e il timesheet personale EP-02 con calendario, griglia e
 dettaglio, oltre agli aggregati amministrativi EP-03 con filtro persone e
-attribuzioni storiche. Restano da implementare scritture dalla nuova vista e
-aggiornamenti multi-workspace. Vedere [contratti API](contracts.md),
-[verifica EP-01](acceptance-ep01.md), [verifica EP-02](acceptance-ep02.md)
-e [verifica EP-03](acceptance-ep03.md);
+attribuzioni storiche. EP-04 aggiunge tab coerenti con Insights, URL e cronologia
+con rivalidazione degli accessi e navigazione accessibile. Restano da implementare
+scritture dalla nuova vista e aggiornamenti multi-workspace. Vedere [contratti API](contracts.md),
+[verifica EP-01](acceptance-ep01.md), [verifica EP-02](acceptance-ep02.md),
+[verifica EP-03](acceptance-ep03.md) e [verifica EP-04](acceptance-ep04.md);
 questa nota non dichiara completata TS-01.
 
 Baseline esaminata: branch `feature/efforts`, commit

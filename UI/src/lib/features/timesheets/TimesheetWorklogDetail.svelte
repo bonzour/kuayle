@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
+	import { X } from 'lucide-svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
@@ -12,9 +13,9 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale } from '$lib/paraglide/runtime.js';
 
-	let { query, group, date, returnFocus, onclose, onaccesschanged }: {
+	let { query, group, date, returnFocus, fallbackFocus, onclose, onaccesschanged }: {
 		query: TimesheetQuery; group: TimesheetGroup; date: string; returnFocus: HTMLElement | null;
-		onclose: () => void; onaccesschanged: () => void;
+		fallbackFocus: () => void; onclose: () => void; onaccesschanged: () => void;
 	} = $props();
 	let result = $state<TimesheetWorklogs | null>(null);
 	let loading = $state(true);
@@ -42,23 +43,28 @@
 </script>
 
 <Dialog.Root open={true} onOpenChange={(open) => { if (!open) onclose(); }}>
-	<Dialog.Content class="max-h-[80vh] sm:max-w-2xl" onCloseAutoFocus={(event) => { event.preventDefault(); if (returnFocus?.isConnected) returnFocus.focus(); }}>
-		<Dialog.Header>
+	<Dialog.Content showCloseButton={false} class="max-h-[80vh] grid-rows-[auto_minmax(0,1fr)_auto] break-words sm:max-w-2xl" onCloseAutoFocus={(event) => { event.preventDefault(); if (returnFocus?.isConnected) returnFocus.focus(); else fallbackFocus(); }}>
+		<Dialog.Close>
+			{#snippet child({ props })}
+				<Button {...props} variant="ghost" size="icon-sm" class="absolute right-2 top-2" aria-label={m['timesheet.close']()}><X size={16} /></Button>
+			{/snippet}
+		</Dialog.Close>
+		<Dialog.Header class="pr-6">
 			<Dialog.Title>{m['timesheet.worklog_details']()}</Dialog.Title>
 			<Dialog.Description>{group.identifier} · {formatTimesheetDate(date, getLocale(), { year: 'numeric' })}</Dialog.Description>
 		</Dialog.Header>
 		<div class="min-h-0 space-y-4 overflow-y-auto">
 			{#if loading}<LoadingState />
-			{:else if failed}<ErrorState message={m['timesheet.failed_load']()} onretry={load} />
+			{:else if failed}<ErrorState message={m['timesheet.failed_load']()} retryLabel={m['timesheet.retry']()} onretry={load} />
 			{:else if result}
 				<p class="text-sm font-medium" role="status">{m['timesheet.total']()}: {formatTimesheetMinutes(result.total_minutes)} · {m['timesheet.registration_count']({ count: result.total_count })}</p>
 				{#if result.data.length === 0}<p class="text-sm text-[var(--color-text-secondary)]">{m['timesheet.no_results']()}</p>{/if}
 				<ul class="space-y-3">
 					{#each result.data as worklog (worklog.id)}
 						<li class="space-y-2 rounded-lg border border-[var(--app-border)] p-3">
-							<div class="flex flex-wrap justify-between gap-2"><a class="rounded font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring" href={`/${worklog.workspace.slug}/issue/${worklog.issue_identifier}`}>{worklog.issue_identifier} · {worklog.issue_title}</a><strong>{formatTimesheetMinutes(worklog.duration_minutes)}</strong></div>
+							<div class="flex flex-wrap justify-between gap-2"><a class="min-w-0 max-w-full rounded font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring" href={`/${worklog.workspace.slug}/issue/${worklog.issue_identifier}`}>{worklog.issue_identifier} · {worklog.issue_title}</a><strong>{formatTimesheetMinutes(worklog.duration_minutes)}</strong></div>
 							<p class="text-xs text-[var(--color-text-secondary)]">{worklog.workspace.name} ({worklog.workspace.slug}) · {worklog.team.name} · {worklog.work_date}</p>
-							<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm"><dt>{m['timesheet.owner']()}</dt><dd>{ownerName(worklog.owner)}</dd><dt>{m['timesheet.operator']()}</dt><dd>{ownerName(worklog.operator)}</dd></dl>
+							<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm"><dt>{m['timesheet.owner']()}</dt><dd>{ownerName(worklog.owner)}</dd><dt>{m['timesheet.operator']()}</dt><dd>{ownerName(worklog.operator)}</dd></dl>
 							{#if worklog.description}<p class="whitespace-pre-wrap break-words text-sm">{worklog.description}</p>{/if}
 							<p class="text-xs text-[var(--color-text-secondary)]">{worklog.workspace.timezone} · {m['timesheet.today']()}: {worklog.workspace.today} · {m['timesheet.reference']()}: {result.reference.timezone}</p>
 						</li>

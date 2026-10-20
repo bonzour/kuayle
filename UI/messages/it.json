@@ -1824,5 +1824,8 @@
 	"timesheet.detail_pages": "Pagine registrazioni",
 	"timesheet.close": "Chiudi",
 	"timesheet.no_results": "Nessun lavoro corrisponde ai filtri selezionati.",
-	"timesheet.no_work": "Nessun lavoro registrato nel periodo."
+	"timesheet.no_work": "Nessun lavoro registrato nel periodo.",
+	"timesheet.retry": "Riprova",
+	"timesheet.invalid_url": "L’URL del Timesheet contiene parametri non validi.",
+	"timesheet.reset_view": "Ripristina vista"
 }

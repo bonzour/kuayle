@@ -1,6 +1,6 @@
 # Timesheets — Epic e Stories
 
-Data: **2026-10-20**. Stato: **fondazioni EP-01, personale EP-02 e aggregati EP-03 implementati; operazioni successive pendenti**.
+Data: **2026-10-20**. Stato: **fondazioni EP-01, personale EP-02, aggregati EP-03 e UI/navigazione EP-04 implementati; EP-05/06 pendenti**.
 Fonte: [TS-01 v0.2 — requisiti Timesheets](../requirements/timesheets/README.md).
 Baseline analizzata: `feature/efforts`, commit `9007650`, incluse le modifiche
 locali Efforts descritte nel requisito. Nessun ticket esterno creato.
@@ -289,6 +289,12 @@ capire la classificazione corrente, **per** interpretare correttamente i totali.
 **Dipendenze:** TS-US-09. **Verifica:** lifecycle e fixture import/storico.
 
 ### TS-EP-04 — UI e navigazione coerenti con Insights
+
+**Incremento EP-04:** implementate TS-US-11–12: cinque tab con primitive Insights,
+ripristino URL e cronologia con rivalidazione degli accessi, tastiera e gestione
+del focus, resa mobile e azioni tradotte. Vedere
+[verifica EP-04](../requirements/timesheets/acceptance-ep04.md).
+Scritture e notifiche multi-workspace restano a EP-05/06.
 
 **Valore:** una nuova vista riconoscibile nell'applicazione, con componenti
 esistenti e comportamenti di navigazione verificabili.

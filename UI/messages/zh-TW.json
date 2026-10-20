@@ -1824,5 +1824,8 @@
 	"timesheet.detail_pages": "工時記錄分頁",
 	"timesheet.close": "關閉",
 	"timesheet.no_results": "沒有符合所選篩選條件的工時記錄。",
-	"timesheet.no_work": "此期間沒有工時記錄。"
+	"timesheet.no_work": "此期間沒有工時記錄。",
+	"timesheet.retry": "重試",
+	"timesheet.invalid_url": "此工時表網址包含無效參數。",
+	"timesheet.reset_view": "重設檢視"
 }

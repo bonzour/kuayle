@@ -115,14 +115,3 @@ export interface TimesheetWorklog {
 }
 
 export interface TimesheetWorklogs extends TimesheetReadResponse { data: TimesheetWorklog[] }
-
-export interface TimesheetHistoryState {
-	owners: TimesheetSelection;
-	userId: string;
-	slug: string;
-	mode: TimesheetMode;
-	filters: TimesheetFilters;
-	period: TimesheetPeriod;
-	referenceId: string;
-	groupPage: number;
-}
