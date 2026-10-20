@@ -20,7 +20,6 @@
 	import { mentionInteractivity } from '$lib/components/shared/mention/mention-interactivity.action';
 	import HistoryAssignees from './HistoryAssignees.svelte';
 	import EffortPlanning from './EffortPlanning.svelte';
-	import EffortHistoryEntry from './EffortHistoryEntry.svelte';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import EffortWorklogs from './EffortWorklogs.svelte';
 
@@ -43,7 +42,7 @@
 	let members = $state<WorkspaceMember[]>([]);
 
 	const RECENT_ACTIVITY_COUNT = 3;
-	let sortedHistory = $derived([...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
+	let sortedHistory = $derived(history.filter(entry => !entry.effort).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
 	let visibleHistory = $derived(showAllActivity ? sortedHistory : sortedHistory.slice(-RECENT_ACTIVITY_COUNT));
 	let hiddenHistoryCount = $derived(sortedHistory.length - visibleHistory.length);
 
@@ -251,7 +250,7 @@
 						? 'border-b-2 border-[var(--app-accent)] text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-tertiary)]'}"
 				>
-					Activity ({history.length})
+					Activity ({sortedHistory.length})
 				</button>
 			</div>
 
@@ -306,14 +305,12 @@
 
 					<div class="space-y-0">
 						{#each visibleHistory as entry}
-							<div class="relative flex {entry.effort ? 'items-start' : 'items-center'} gap-3 pb-3">
+							<div class="relative flex items-center gap-3 pb-3">
 								<div class="relative z-10 flex h-4 w-4 shrink-0 items-center justify-center">
 									<div class="h-1.5 w-1.5 rounded-full bg-[var(--color-text-tertiary)] ring-2 ring-[var(--color-bg)]"></div>
 								</div>
 								<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0">
-									{#if entry.effort}
-										<EffortHistoryEntry event={entry.effort} />
-									{:else if entry.field === 'title' || entry.field === 'description'}
+									{#if entry.field === 'title' || entry.field === 'description'}
 										<span>updated <strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(entry.field)}</strong></span>
 									{:else}
 										<span>changed <strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(entry.field)}</strong></span>
@@ -332,8 +329,8 @@
 											<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(entry.field, entry.new_value, entry.new_display_value)}</code>
 										{/if}
 									{/if}
-									{#if !entry.effort}<span class="text-[var(--color-text-tertiary)]">&middot;</span>
-									<span>{formatRelativeTime(entry.created_at, getLocale())}</span>{/if}
+									<span class="text-[var(--color-text-tertiary)]">&middot;</span>
+									<span>{formatRelativeTime(entry.created_at, getLocale())}</span>
 								</div>
 							</div>
 						{/each}
@@ -348,13 +345,13 @@
 						</button>
 					{/if}
 
-					{#if history.length === 0}
+					{#if sortedHistory.length === 0}
 						<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet</p>
 					{/if}
 				</div>
 			{/if}
 
-			<EffortWorklogs {issue} {slug} />
+			<EffortWorklogs {issue} {slug} {history} />
 		</div>
 	</div>
 	</Sheet.Content>

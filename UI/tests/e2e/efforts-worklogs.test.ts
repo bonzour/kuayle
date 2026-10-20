@@ -10,7 +10,8 @@ const person = (id = userId) => ({ id, available: true, name: id === userId ? 'T
 const timestamp = '2026-10-19T12:00:00Z';
 const register = (page: Page) => page.getByRole('region', { name: 'Work log', exact: true });
 const dialog = (page: Page) => page.locator('[data-slot="dialog-content"]');
-const rows = (page: Page) => register(page).getByRole('listitem');
+const records = (page: Page) => register(page).locator('[data-worklog-records]');
+const rows = (page: Page) => records(page).getByRole('listitem');
 
 function fixture(role = 'member', count = 0) {
 	const issues = [1, 2].map((number) => ({
@@ -166,15 +167,22 @@ function fixture(role = 'member', count = 0) {
 						let id = match[2];
 						if (method === 'POST') {
 							id = crypto.randomUUID();
-							logs[identifier].unshift({
+							const dates: string[] = [];
+							const date = new Date(`${body.work_date}T00:00:00Z`);
+							const end = body.end_date ?? body.work_date;
+							while (date.toISOString().slice(0, 10) <= end) {
+								if (!body.skip_weekends || date.getUTCDay() !== 0 && date.getUTCDay() !== 6) dates.push(date.toISOString().slice(0, 10));
+								date.setUTCDate(date.getUTCDate() + 1);
+							}
+							for (const work_date of dates) logs[identifier].unshift({
 								...makeLog(1, identifier),
-								id,
+								id: crypto.randomUUID(),
 								owner: person(body.owner_user_id),
 								description: body.description,
-								work_date: body.work_date,
+								work_date,
 								duration_minutes: body.duration_minutes
 							});
-							remaining[identifier] = Math.max(remaining[identifier] - body.duration_minutes, 0);
+							remaining[identifier] = Math.max(remaining[identifier] - body.duration_minutes * dates.length, 0);
 						} else {
 							const index = logs[identifier].findIndex((row) => row.id === id);
 							if (index < 0) return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
@@ -234,6 +242,7 @@ function fixture(role = 'member', count = 0) {
 		if (view === 'panel') await page.getByText('Worklog issue 1', { exact: true }).click();
 		await expect(register(page)).toBeVisible();
 		await expect(register(page)).toHaveAttribute('aria-busy', 'false');
+		await records(page).locator('summary').click();
 	}
 	return { state, attach };
 }
@@ -252,7 +261,7 @@ for (const view of ['page', 'panel'] as const) {
 		const { state, attach } = fixture();
 		await attach(page, view);
 		await openCreate(page);
-		await expect(dialog(page).getByLabel('Work date', { exact: true })).toHaveValue('2026-01-02');
+		await expect(dialog(page).getByLabel('From', { exact: true })).toHaveValue('2026-01-02');
 		await fill(page);
 		await dialog(page).screenshot({ path: testInfo.outputPath('worklog-dialog.png') });
 		await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
@@ -301,7 +310,7 @@ for (const mode of ['create', 'update', 'delete'] as const) {
 		await attach(page);
 		if (mode === 'create') {
 			await openCreate(page);
-			await fill(page, '60', 'Retry me');
+			await fill(page, '60m', 'Retry me');
 		} else {
 			await rows(page)
 				.getByRole('button', { name: mode === 'update' ? 'Edit work log' : 'Delete', exact: true })
@@ -448,7 +457,7 @@ test('creation rereads workspace today when the dialog opens', async ({ page }) 
 	await attach(page);
 	state.today = '2026-01-03';
 	await openCreate(page);
-	await expect(dialog(page).getByLabel('Work date', { exact: true })).toHaveValue('2026-01-03');
+	await expect(dialog(page).getByLabel('From', { exact: true })).toHaveValue('2026-01-03');
 });
 
 for (const view of ['page', 'panel'] as const) {
@@ -506,14 +515,14 @@ for (const view of ['page', 'panel'] as const) {
   await attach(page,view);
   if(view==='panel')await page.getByRole('button',{name:/^Activity \(/}).click();
   const totals=page.getByLabel('Total of visible issues',{exact:true});
-  await expect(totals).toContainText('12h');await expect(totals).toContainText('9h');await expect(totals).toContainText('partial');
-  const history=page.locator('[data-effort-event="worklog_deleted"]');
+  await expect(totals).toContainText('1d 4h');await expect(totals).toContainText('1d 1h');await expect(totals).toContainText('partial');
+  const history=register(page).locator('[data-effort-event="worklog_deleted"]');
   await expect(history).toContainText('Test User');await history.getByText('Work log details',{exact:true}).click();
   await expect(history).toContainText('User no longer available');await expect(history).toContainText('2020-02-01');await expect(history).toContainText('1h 30m');await expect(history).toContainText('漢字 👩🏽‍💻');await expect(history).toContainText('Entered by Test User');
   state.total.remaining_minutes=0;
   state.history['EP-1'].push({id:'closed',issue_id:'issue',field:'efforts',created_at:'2026-10-19T12:01:00Z',effort:{...event,event_type:'remaining_set',actor:{kind:'system',system_source:'github'},cause:'closure',before:{planning:{estimate_minutes:480,remaining_minutes:60}},after:{planning:{estimate_minutes:480,remaining_minutes:0}}}});
   state.refresh();
-  await expect(totals).toContainText('0m');await expect(page.locator('[data-effort-event="remaining_set"]')).toContainText('System (github)');await expect(page.locator('[data-effort-event="remaining_set"]')).toContainText('issue closed');
+  await expect(totals).toContainText('0d');await expect(register(page).locator('[data-effort-event="remaining_set"]')).toHaveCount(0);
   await page.screenshot({path:testInfo.outputPath(`efforts-v1-${view}.png`),fullPage:true});
   state.accessible=false;state.refresh();
   await expect(page.locator('[data-effort-event]')).toHaveCount(0);
@@ -530,11 +539,67 @@ test('two sessions refresh parent totals and history after reconnect',async({pag
  state.total={estimate_minutes:720,spent_minutes:0,remaining_minutes:720,estimate_partial:false,remaining_partial:false};
  await attach(page);
  const second=await context.newPage();await attach(second);
- for(const session of [page,second])await expect(session.getByLabel('Total of visible issues',{exact:true})).toContainText('12h');
+ for(const session of [page,second])await expect(session.getByLabel('Total of visible issues',{exact:true})).toContainText('1d 4h');
  state.total.remaining_minutes=540;state.total.spent_minutes=180;state.refresh();
- for(const session of [page,second])await expect(session.getByLabel('Total of visible issues',{exact:true})).toContainText('9h');
+ for(const session of [page,second])await expect(session.getByLabel('Total of visible issues',{exact:true})).toContainText('1d 1h');
  state.total.remaining_minutes=480;
  await second.evaluate(()=>window.dispatchEvent(new CustomEvent('ws:reconnected')));
- await expect(second.getByLabel('Total of visible issues',{exact:true})).toContainText('8h');
+ await expect(second.getByLabel('Total of visible issues',{exact:true})).toContainText('1d');
  await second.close();
+});
+
+for (const view of ['page', 'panel'] as const) {
+	test(`period entry previews daily effort and preserves the whole payload on retry in the ${view}`, async ({ page }, testInfo) => {
+		const { state, attach } = fixture('owner');
+		state.today = '2026-03-30';
+		await attach(page, view);
+		await openCreate(page);
+		await dialog(page).getByLabel('From', { exact: true }).fill('2026-03-27');
+		await dialog(page).getByLabel('To', { exact: true }).fill('2026-03-30');
+		await fill(page, '0.5d', 'Across the weekend');
+		await expect(dialog(page)).toContainText('2 selected days · Total 1d');
+		await dialog(page).getByLabel('Skip Saturdays and Sundays').uncheck();
+		await expect(dialog(page)).toContainText('4 selected days · Total 2d');
+		await dialog(page).getByLabel('Skip Saturdays and Sundays').check();
+		await dialog(page).screenshot({ path: testInfo.outputPath(`effort-period-${view}.png`) });
+		state.loseResponse = true;
+		await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
+		await expect(dialog(page).getByRole('alert')).toContainText('could not be confirmed');
+		await expect(dialog(page).getByLabel('From', { exact: true })).toHaveValue('2026-03-27');
+		await dialog(page).getByRole('button', { name: 'Retry save', exact: true }).click();
+		await expect(dialog(page)).toHaveCount(0);
+		expect(state.writes[0].body).toMatchObject({ work_date: '2026-03-27', end_date: '2026-03-30', skip_weekends: true, duration_minutes: 240 });
+		expect(state.writes[0]).toEqual(state.writes[1]);
+		expect(state.logs['EP-1'].map(row => row.work_date).sort()).toEqual(['2026-03-27', '2026-03-30']);
+	});
+	test(`work log separates effort history and hides every automatic Remaining change in the ${view}`, async ({ page }, testInfo) => {
+		const { state, attach } = fixture('owner', 1);
+		const make = (id: string, event_type: string, revision: number, cause = 'manual', kind = 'user') => ({ id, issue_id: 'issue', field: 'efforts', created_at: `2026-01-02T12:0${revision}:00Z`, effort: { id, issue_id: 'issue', event_type, revision, cause, actor: kind === 'user' ? {kind,user_id:userId} : {kind,system_source:'github'}, before: {planning:{estimate_minutes:480,remaining_minutes:480}}, after: {planning:{estimate_minutes:960,remaining_minutes:240}}, users:[person()], snapshot_version:1, created_at:timestamp }});
+		state.history['EP-1'] = [make('estimate', 'estimate_set', 1), make('initial', 'remaining_set', 1), make('logged', 'remaining_set', 2, 'worklog'), make('closed', 'remaining_set', 3, 'closure', 'system'), make('reactivated', 'remaining_set', 4, 'reactivation'), make('manual', 'remaining_set', 5), {id:'title',field:'title',created_at:timestamp}];
+		await attach(page, view);
+		if (view === 'panel') await page.getByRole('button', {name:'Activity (1)',exact:true}).click();
+		await expect(page.locator('[data-effort-event]')).toHaveCount(2);
+		await expect(register(page).locator('[data-effort-event="estimate_set"]')).toContainText('1d');
+		await expect(register(page).locator('[data-effort-event="remaining_set"]')).toHaveCount(1);
+		await expect(register(page).locator('[data-effort-event="remaining_set"]')).toContainText('Test User');
+		await records(page).locator('summary').click();
+		await expect(rows(page)).not.toBeVisible();
+		await register(page).screenshot({path:testInfo.outputPath(`effort-history-${view}.png`)});
+		await records(page).locator('summary').click();
+		await expect(rows(page)).toContainText('Entry 1');
+	});
+}
+
+test('invalid and weekend-only periods keep the draft without submitting', async ({page}) => {
+	const {state,attach}=fixture();state.today='2026-01-05';await attach(page);await openCreate(page);await fill(page,'1d','Keep my period');
+	await dialog(page).getByLabel('From',{exact:true}).fill('2026-01-03');
+	await dialog(page).getByLabel('To',{exact:true}).fill('2026-01-04');
+	await dialog(page).getByRole('button',{name:'Save',exact:true}).click();
+	await expect(dialog(page).getByRole('alert')).toContainText('no selected working days');
+	expect(state.writes).toHaveLength(0);
+	await dialog(page).getByLabel('To',{exact:true}).fill('2026-01-02');
+	await dialog(page).getByRole('button',{name:'Save',exact:true}).click();
+	await expect(dialog(page).getByLabel('To',{exact:true})).toHaveAttribute('aria-invalid','true');
+	await expect(dialog(page).getByLabel('Description (optional)',{exact:true})).toHaveValue('Keep my period');
+	expect(state.writes).toHaveLength(0);
 });

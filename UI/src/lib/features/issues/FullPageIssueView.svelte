@@ -51,7 +51,6 @@
 	import { getIssueCopyPrompt } from '$lib/api/ai-settings';
 	import HistoryAssignees from './HistoryAssignees.svelte';
 	import EffortPlanning from './EffortPlanning.svelte';
-	import EffortHistoryEntry from './EffortHistoryEntry.svelte';
 	import EffortWorklogs from './EffortWorklogs.svelte';
 	import IssueMachineActions from '$lib/features/dev-machines/IssueMachineActions.svelte';
 	import IssueMachinePickerDialog, { type IssueMachineIntent } from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
@@ -1053,9 +1052,9 @@
 
 					{#if loaded}
 						{@const GROUP_THRESHOLD_MS = 5000}
-						{@const historyGroups = [...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).reduce<Array<{ items: IssueHistory[]; time: string }>>((acc, h) => {
+						{@const historyGroups = history.filter(entry => !entry.effort).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).reduce<Array<{ items: IssueHistory[]; time: string }>>((acc, h) => {
 							const prev = acc[acc.length - 1];
-							if (prev && !h.effort && !prev.items.some(item => item.effort) && Math.abs(new Date(h.created_at).getTime() - new Date(prev.time).getTime()) < GROUP_THRESHOLD_MS) {
+							if (prev && Math.abs(new Date(h.created_at).getTime() - new Date(prev.time).getTime()) < GROUP_THRESHOLD_MS) {
 								prev.items.push(h);
 							} else {
 								acc.push({ items: [h], time: h.created_at });
@@ -1089,14 +1088,11 @@
 									{@const iconColor = items.length > 1 ? 'text-[var(--color-text-tertiary)]' : historyColor(firstField)}
 									{@const textFields = [...new Set(items.filter(c => c.field === 'title' || c.field === 'description').map(c => c.field))]}
 									{@const valueItems = items.filter((c, i, arr) => c.field !== 'title' && c.field !== 'description' && arr.findIndex(x => x.field === c.field) === i)}
-									<div class="relative flex {items[0].effort ? 'items-start' : 'items-center'} gap-3 pb-2.5">
+									<div class="relative flex items-center gap-3 pb-2.5">
 										<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center ring-2 ring-[var(--color-bg)] rounded-full bg-[var(--color-bg)] {iconColor}">
 											<IconComponent size={12} />
 										</div>
 										<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0">
-											{#if items[0].effort}
-												<EffortHistoryEntry event={items[0].effort} />
-											{:else}
 											{#if textFields.length > 0}
 												<span>{m['issue.updated']()} <strong class="text-[var(--color-text-secondary)]">{textFields.map(f => historyFieldLabel(f)).join(', ')}</strong></span>
 												{#if valueItems.length > 0}<span class="text-[var(--app-border)]">|</span>{/if}
@@ -1119,9 +1115,8 @@
 													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value, change.new_display_value)}</code>
 												{/if}
 											{/each}
-											{/if}
-											{#if !items[0].effort}<span>&middot;</span>
-											<span class="shrink-0">{formatRelativeTime(entry.time, getLocale())}</span>{/if}
+											<span>&middot;</span>
+											<span class="shrink-0">{formatRelativeTime(entry.time, getLocale())}</span>
 										</div>
 									</div>
 								{/each}
@@ -1143,7 +1138,7 @@
 					{/if}
 				</div>
 
-				<EffortWorklogs {issue} {slug} />
+				<EffortWorklogs {issue} {slug} {history} />
 
 				<!-- Comments -->
 				<div class="mt-4 space-y-3">

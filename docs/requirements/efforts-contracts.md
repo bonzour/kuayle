@@ -30,7 +30,7 @@ precisione JavaScript. Anche le revisioni rispettano questo limite.
 `work_date` è `DATE`, serializzato `YYYY-MM-DD`, da `0001-01-01` a `9999-12-31`.
 Nessuna conversione UTC o dipendenza dal fuso del browser. La durata è un intero
 fra 1 e 1.440 minuti. Descrizione nullable, testo semplice, massimo 2.000 caratteri
-Unicode, senza troncamento. I form convertono `1h 30m` in 90; le API
+Unicode, senza troncamento. I form convertono `1h 30m` in 90 e `1d` in 480; le API
 ricevono minuti interi, non stringhe di durata o numeri frazionari.
 
 Il fuso deve esistere in `pg_timezone_names`, essere un nome IANA con `/` oppure
@@ -153,7 +153,7 @@ dei titolari restano riservati alle sessioni owner/admin:
 | --- | --- |
 | `SetEffortEstimateRequest` | `estimate_minutes`: intero o null esplicito per rimuovere; ometterlo non equivale a rimuovere. |
 | `SetEffortRemainingRequest` | `remaining_minutes`: intero non negativo obbligatorio. |
-| `CreateEffortWorklogRequest` | `owner_user_id`, `work_date`, `duration_minutes`, `description` opzionale/null. |
+| `CreateEffortWorklogRequest` | `owner_user_id`, `work_date`, `duration_minutes`, `description` opzionale/null; `end_date` e `skip_weekends` opzionali per un periodo. |
 | `UpdateEffortWorklogRequest` | Data, durata e descrizione desiderate; nessun titolare modificabile. |
 | `DeleteEffortWorklogRequest` | Solo involucro comune. |
 | `SetEffortSettingsRequest` | Configurazione completa: `enabled`, `timezone`; solo sessione owner/admin. |
@@ -229,9 +229,12 @@ resta in sola lettura. Le due scritture usano la revisione comune dell'issue.
 Stima assente è «Non stimato»; residuo assente è
 visualizzato zero con «Non impostato», distinto dallo zero esplicito. Rimozione
 della stima è un comando separato, non un campo vuoto.
-L'input accetta interi senza unità (minuti), `90m`, `2h`, `1h 30m` e `1h30m`,
-ignorando spazi esterni e maiuscole delle unità. Rifiuta decimali, segni, giorni,
-settimane, unità duplicate e overflow, senza arrotondamento.
+Dal 2026-10-20 l’unità principale UI è il giorno da 8 ore: numeri senza unità
+indicano giorni; sono supportati `1d`, `0.5d`/`0,5d`, `1d 2h 30m`, `90m`, `2h`,
+`1h 30m` e `1h30m`. Le frazioni sono ammesse soltanto per giorni e soltanto se
+corrispondono a minuti interi. Output con giorni, ore e minuti conserva la
+precisione. Segni, settimane, unità duplicate e overflow sono rifiutati.
+Il contratto API e la persistenza continuano a usare minuti interi.
 Errori conservano la bozza; un 404 è segnalato come indisponibilità, distinto dal
 rifiuto dei permessi (403). Il caricamento del ruolo non implica un rifiuto.
 Retry incerti conservano payload e chiave. Conflitti
@@ -267,7 +270,8 @@ usa 400 `EFFORT_DAILY_LIMIT` senza dettagli o conteggi. Restano i conflitti 409
 e i controlli transazionali/idempotenti comuni. I replay dopo eliminazione sono
 riconosciuti senza richiedere preventivamente l’esistenza del worklog.
 
-Pagina e pannello condividono il registro dopo l’attività, con pagine da 50,
+Pagina e pannello condividono WORK LOG dopo l’attività. La sottosezione
+«Registrazioni» conserva il registro con pagine da 50,
 data, titolare, durata, descrizione e «inserito da» nelle deleghe. L’intestazione
 è richiudibile e le righe riprendono lo stile compatto della timeline ACTIVITY.
 Si mostrano inizialmente tre registrazioni, con comando per espandere le
@@ -288,6 +292,47 @@ Risposte tardive e callback di componenti distrutti non popolano altre viste.
 Il comando per mostrare le registrazioni precedenti è sopra le righe, come in
 Activity. Il completamento V1 include aggregati e storico nelle due superfici,
 con refresh remoto e riconnessione; non introduce timesheet o notifiche dedicate.
+
+### Inserimento per periodo e timeline Efforts (2026-10-20)
+
+`POST /worklogs` conserva il contratto singolo ed accetta anche:
+
+```json
+{
+  "request_id": "40000000-0000-0000-0000-000000000001",
+  "expected_revision": 7,
+  "owner_user_id": "30000000-0000-0000-0000-000000000001",
+  "work_date": "2026-03-27",
+  "end_date": "2026-03-30",
+  "skip_weekends": true,
+  "duration_minutes": 480,
+  "description": "Effort giornaliero"
+}
+```
+
+Il periodo è inclusivo; la durata si applica a ciascuna data scelta. Il server
+espande le date di calendario e, se richiesto, esclude soltanto sabato/domenica.
+`end_date` deve essere valido, non precedente a `work_date` e non futuro nel fuso
+workspace; un periodo privo di date selezionate è rifiutato con 400 e dettaglio
+`end_date`. Senza `end_date` rimane la semantica singola, anche nei weekend.
+
+Autorizzazioni e delega sono quelle dei worklog singoli. Prima degli inserimenti
+si acquisiscono tutti i lock budget in ordine stabile; ogni data viene validata
+entro la stessa transazione. Un errore su qualsiasi data annulla l’intero periodo,
+compresi residuo, eventi e ricevuta. La revisione issue avanza una sola volta;
+ogni worklog ha il suo evento, e il residuo impostato diminuisce della somma.
+La ricevuta del periodo usa l’UUID issue come `resource_id`. Hash e ricevuta
+includono estremi e scelta weekend; i replay non ricreano le righe. I tentativi
+singoli precedenti mantengono il loro hash, senza alterare i retry già persistiti.
+Nessun nuovo modello persistito o migrazione.
+
+WORK LOG mostra gli eventi Efforts con la forma precedente di Activity; gli
+eventi generici restano in Activity. Le variazioni `remaining_set` appaiono solo
+per operatore utente, causa manuale e comando esplicito sul residuo. Gli eventi
+storici automatici marcati manuali sono riconosciuti dal comando stima/worklog
+con la stessa issue e revisione. La proiezione UI non elimina gli eventi dalla
+risposta API né dall’archivio. Il registro precedente rimane in «Registrazioni»,
+richiudibile, con le azioni esistenti. Testi nelle quattro lingue del progetto.
 
 ### Comandi sulle issue e garanzie comuni
 
@@ -356,7 +401,7 @@ L'operatore è `{ "kind": "user", "user_id": "..." }` oppure
 `{ "kind": "system", "system_source": "github" }`. Le automazioni dichiarano
 l'origine reale, senza inventare account o usare `uuid.Nil`. L'operatore della
 riattivazione è l'admin che la richiede. Questi eventi sono proiettati nella
-stessa attività dell'issue mantenendo compatibili gli eventi generici esistenti.
+risposta storico dell'issue mantenendo compatibili gli eventi generici esistenti.
 
 `GET /issues/:identifier/history` mantiene l'involucro degli eventi generici e
 aggiunge gli eventi con `field: "efforts"` e `effort: EffortEvent`. Il campo

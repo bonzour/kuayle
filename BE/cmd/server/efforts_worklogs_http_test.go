@@ -195,6 +195,24 @@ func TestEffortWorklogsHTTP(t *testing.T) {
 	request(ownerJWT, "POST", worklogs, bad, 400)
 	bad["description"] = strings.Repeat("🙂", 2000)
 	request(ownerJWT, "POST", worklogs, bad, 200)
+	// One HTTP command creates an inclusive period and one persistent receipt.
+	period := payload(owner, 480, "2026-03-27")
+	period["end_date"], period["skip_weekends"] = "2026-03-30", true
+	periodReceipt := decodeReceipt(request(ownerJWT, "POST", worklogs, period, 200))
+	require.Equal(t, issue.String(), periodReceipt.ResourceID)
+	require.Equal(t, periodReceipt, decodeReceipt(request(ownerJWT, "POST", worklogs, period, 200)))
+	var periodRows int
+	require.NoError(t, db.Get(&periodRows, `SELECT count(*) FROM effort_worklogs WHERE issue_id=$1 AND work_date BETWEEN '2026-03-27' AND '2026-03-30'`, issue))
+	require.Equal(t, 2, periodRows)
+	for _, end := range []any{"2026-02-30", "2026-01-01", 42} {
+		invalid := payload(owner, 480, "2026-03-27")
+		invalid["end_date"] = end
+		data := request(ownerJWT, "POST", worklogs, invalid, 400)
+		require.Contains(t, string(data), `"field":"end_date"`)
+	}
+	invalidPeriod := payload(owner, 480, "2026-03-28")
+	invalidPeriod["end_date"], invalidPeriod["skip_weekends"] = "2026-03-29", true
+	request(ownerJWT, "POST", worklogs, invalidPeriod, 400)
 	// Hidden work counts in the daily budget without appearing in the error.
 	exec(`INSERT INTO effort_worklogs(workspace_id,issue_id,owner_user_id,created_by_user_id,work_date,duration_minutes) VALUES($1,$2,$3,$4,'2026-01-04',1380)`, ws, hidden, member, owner)
 	dailyError := request(memberJWT, "POST", worklogs, payload(member, 61, "2026-01-04"), 400)

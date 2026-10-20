@@ -60,6 +60,8 @@ type CreateEffortWorklogRequest struct {
 	EffortMutationRequest
 	OwnerUserID     string            `json:"owner_user_id" validate:"required,uuid"`
 	WorkDate        domain.EffortDate `json:"work_date" validate:"required"`
+	EndDate         *string           `json:"end_date,omitempty"`
+	SkipWeekends    bool              `json:"skip_weekends,omitempty"`
 	DurationMinutes int64             `json:"duration_minutes" validate:"min=1,max=1440"`
 	Description     *string           `json:"description" validate:"omitempty,max=2000"`
 }

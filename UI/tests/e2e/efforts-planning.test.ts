@@ -103,7 +103,7 @@ function fixture(role = 'owner') {
 		await page.goto(view === 'panel' ? `/test/projects/${projectId}` : '/test/issue/EP-1');
 		if (view === 'panel') await page.getByText('Planning issue 1', { exact: true }).click();
 		await expect(value(page, 'Estimate')).toHaveText('Not estimated');
-		await expect(value(page, 'Remaining')).toHaveText('0m (Not set)');
+		await expect(value(page, 'Remaining')).toHaveText('0d (Not set)');
 	}
 	return { state, attach };
 }
@@ -127,7 +127,7 @@ for (const view of ['page', 'panel'] as const) {
 		await page.screenshot({ path: testInfo.outputPath('effort-inline.png') });
 		await testInfo.attach('Inline effort editor', { path: testInfo.outputPath('effort-inline.png'), contentType: 'image/png' });
 		await input(page, 'Estimate').press('Enter');
-		await expect(value(page, 'Estimate')).toHaveText('8h');
+		await expect(value(page, 'Estimate')).toHaveText('1d');
 		await expect(value(page, 'Remaining')).toHaveText('6h');
 		await expect(page.locator('[data-slot="popover-content"][data-state="open"]')).toHaveCount(0);
 		await expect(input(page, 'Estimate')).toHaveCount(0);
@@ -145,7 +145,7 @@ for (const view of ['page', 'panel'] as const) {
 		await expect(value(page, 'Remaining')).toHaveText('1h 30m');
 		expect(state.summaries['EP-1'].own).toEqual({ estimate_minutes: null, spent_minutes: 120, remaining_minutes: 90 });
 		await enter(page, 'Estimate', '0');
-		await expect(value(page, 'Estimate')).toHaveText('0m');
+		await expect(value(page, 'Estimate')).toHaveText('0d');
 		expect(state.summaries['EP-1'].own.remaining_minutes).toBe(90);
 		expect(state.writes.map(write => write.body.expected_revision)).toEqual([0, 1, 2, 3, 4]);
 	});
@@ -324,4 +324,13 @@ test('an owner awaiting membership refresh is not reported as unauthorized', asy
 	await expect(value(page, 'Estimate')).toBeEnabled();
 	await enter(page, 'Estimate', '1h');
 	await expect(value(page, 'Estimate')).toHaveText('1h');
+});
+
+test('planning accepts days as its primary unit with eight hours per day', async ({page}) => {
+	const {state,attach}=fixture();await attach(page);
+	await enter(page,'Estimate','1.5');
+	await expect(value(page,'Estimate')).toHaveText('1d 4h');
+	expect(state.summaries['EP-1'].own.estimate_minutes).toBe(720);
+	await enter(page,'Remaining','0,5d');
+	expect(state.summaries['EP-1'].own.remaining_minutes).toBe(240);
 });

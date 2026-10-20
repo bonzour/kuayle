@@ -77,6 +77,8 @@ export interface UpdateEffortWorklogRequest extends EffortMutationRequest {
 
 export interface CreateEffortWorklogRequest extends UpdateEffortWorklogRequest {
 	owner_user_id: string;
+	end_date?: EffortDate;
+	skip_weekends?: boolean;
 }
 
 export type DeleteEffortWorklogRequest = EffortMutationRequest;

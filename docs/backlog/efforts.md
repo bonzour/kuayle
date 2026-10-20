@@ -9,6 +9,16 @@ Uso e nota di rilascio: [efforts-usage.md](../requirements/efforts-usage.md).
 Le note datate precedenti registrano il perimetro della singola consegna; i rinvii
 a storie successive sono ora risolti dal completamento V1 descritto sotto.
 
+Estensione richiesta il 2026-10-20 dopo il completamento V1: inserimento per
+periodi inclusivi con durata giornaliera e weekend facoltativi; giorni da 8 ore
+come unità principale UI; eventi Efforts in WORK LOG con filtro delle variazioni
+automatiche del residuo e registro operativo nella sottosezione Registrazioni.
+Verificati 1.021 test/subtest Go con PostgreSQL e `-race` (nessuno skip Efforts),
+43 unit test UI, check/build, 60 E2E e ulteriori 10 mirati dopo gli ultimi ritocchi.
+Queste scelte aggiornano le convenzioni UI della baseline; API e persistenza
+restano in minuti. Contratto aggiornato in
+[efforts-contracts.md](../requirements/efforts-contracts.md#inserimento-per-periodo-e-timeline-efforts-2026-10-20).
+
 Fonte: [requisiti Efforts](../requirements/efforts.md).
 Vincoli e codice verificato: [analisi architetturale](../requirements/efforts-analysis.md).
 

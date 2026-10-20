@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -18,17 +19,19 @@ import (
 )
 
 type effortCommand struct {
-	operation   string
-	request     dto.EffortMutationRequest
-	issue       uuid.UUID
-	worklog     uuid.UUID
-	owner       uuid.UUID
-	estimate    *int64
-	remaining   *int64
-	date        domain.EffortDate
-	duration    int64
-	description *string
-	settings    *dto.SetEffortSettingsRequest
+	operation    string
+	request      dto.EffortMutationRequest
+	issue        uuid.UUID
+	worklog      uuid.UUID
+	owner        uuid.UUID
+	estimate     *int64
+	remaining    *int64
+	date         domain.EffortDate
+	endDate      *string
+	skipWeekends bool
+	duration     int64
+	description  *string
+	settings     *dto.SetEffortSettingsRequest
 }
 
 func (r *EffortRepository) SetEstimate(ctx context.Context, ws, issue uuid.UUID, req dto.SetEffortEstimateRequest) (*EffortMutationResult, error) {
@@ -51,7 +54,7 @@ func (r *EffortRepository) CreateWorklog(ctx context.Context, ws, issue uuid.UUI
 	if err != nil || owner == uuid.Nil {
 		return nil, effortError("VALIDATION_ERROR", "owner_user_id", "invalid owner")
 	}
-	return r.mutate(ctx, ws, effortCommand{operation: "worklog_created", request: req.EffortMutationRequest, issue: issue, owner: owner, date: req.WorkDate, duration: req.DurationMinutes, description: req.Description})
+	return r.mutate(ctx, ws, effortCommand{operation: "worklog_created", request: req.EffortMutationRequest, issue: issue, owner: owner, date: req.WorkDate, endDate: req.EndDate, skipWeekends: req.SkipWeekends, duration: req.DurationMinutes, description: req.Description})
 }
 func (r *EffortRepository) UpdateWorklog(ctx context.Context, ws, issue, worklog uuid.UUID, req dto.UpdateEffortWorklogRequest) (*EffortMutationResult, error) {
 	if err := validateEffortRequest(req); err != nil {
@@ -104,6 +107,10 @@ func (c effortCommand) fingerprint(ws uuid.UUID) ([]byte, error) {
 		value["remaining_minutes"] = c.remaining
 	case "worklog_created":
 		value["owner_user_id"] = c.owner
+		if c.endDate != nil {
+			value["end_date"] = c.endDate
+			value["skip_weekends"] = c.skipWeekends
+		}
 		fallthrough
 	case "worklog_updated":
 		value["work_date"] = c.date
@@ -322,12 +329,36 @@ func (r *EffortRepository) mutate(ctx context.Context, ws uuid.UUID, c effortCom
 			}
 			after.RemainingMinutes = c.remaining
 		default:
-			resource, err = r.worklogCommand(ctx, tx, ws, c, old, actor, revision, settings.Timezone)
-			if err != nil {
-				return nil, err
+			dates := []domain.EffortDate{c.date}
+			if c.endDate != nil {
+				dates, err = effortPeriodDates(ctx, c.date, *c.endDate, c.skipWeekends)
+				if err != nil {
+					return nil, err
+				}
+				if err = lockEffortBudgets(ctx, tx, ws, c.owner, dates...); err != nil {
+					return nil, err
+				}
+				var future bool
+				if err = tx.GetContext(ctx, &future, `SELECT $1::date>(clock_timestamp() AT TIME ZONE $2)::date`, *c.endDate, settings.Timezone); err != nil {
+					return nil, err
+				}
+				if future {
+					return nil, effortError("VALIDATION_ERROR", "end_date", "end_date cannot be in the future")
+				}
+			}
+			for _, date := range dates {
+				day := c
+				day.date = date
+				resource, err = r.worklogCommand(ctx, tx, ws, day, old, actor, revision, settings.Timezone)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if c.endDate != nil {
+				resource = c.issue
 			}
 			if c.operation == "worklog_created" && after.RemainingMinutes != nil {
-				remaining := max(*after.RemainingMinutes-c.duration, 0)
+				remaining := max(*after.RemainingMinutes-c.duration*int64(len(dates)), 0)
 				after.RemainingMinutes = &remaining
 			}
 		}
@@ -345,7 +376,7 @@ func (r *EffortRepository) mutate(ctx context.Context, ws uuid.UUID, c effortCom
 		}
 		if c.operation == "remaining_set" || !sameMinutes(before.RemainingMinutes, after.RemainingMinutes) {
 			cause := "manual"
-			if c.operation == "worklog_created" {
+			if c.operation == "worklog_created" || c.operation == "worklog_updated" || c.operation == "worklog_deleted" {
 				cause = "worklog"
 			}
 			if err = writeEffortEvent(ctx, tx, ws, c.issue, actor, "remaining_set", cause, planningSnapshot(before), planningSnapshot(after), revision); err != nil {
@@ -368,6 +399,33 @@ func (r *EffortRepository) mutate(ctx context.Context, ws uuid.UUID, c effortCom
 		return nil, err
 	}
 	return &EffortMutationResult{Receipt: dto.EffortMutationReceipt{RequestID: requestID.String(), ResourceID: resource.String(), Revision: revision}}, nil
+}
+
+// Expand calendar dates without converting them to workspace or browser instants.
+// All dates are locked before any insertion, in the shared budget lock order.
+func effortPeriodDates(ctx context.Context, start domain.EffortDate, end string, skipWeekends bool) ([]domain.EffortDate, error) {
+	if _, err := domain.ParseEffortDate(string(start)); err != nil {
+		return nil, effortError("VALIDATION_ERROR", "work_date", "invalid start date")
+	}
+	if _, err := domain.ParseEffortDate(end); err != nil || end < string(start) {
+		return nil, effortError("VALIDATION_ERROR", "end_date", "end_date must be on or after work_date")
+	}
+	date, _ := time.Parse(time.DateOnly, string(start))
+	last, _ := time.Parse(time.DateOnly, end)
+	var dates []domain.EffortDate
+	for !date.After(last) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if !skipWeekends || date.Weekday() != time.Saturday && date.Weekday() != time.Sunday {
+			dates = append(dates, domain.EffortDate(date.Format(time.DateOnly)))
+		}
+		date = date.AddDate(0, 0, 1)
+	}
+	if len(dates) == 0 {
+		return nil, effortError("VALIDATION_ERROR", "end_date", "period has no selected working days")
+	}
+	return dates, nil
 }
 
 func (r *EffortRepository) worklogCommand(ctx context.Context, tx *sqlx.Tx, ws uuid.UUID, c effortCommand, old *effortWorklogRow, actor domain.EffortActor, revision int64, timezone string) (uuid.UUID, error) {

@@ -9,7 +9,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import EffortDurationInput from './EffortDurationInput.svelte';
 	import { formatEffortMinutes } from './effort-duration';
-	import { validateWorklogDraft } from './effort-worklog';
+	import { validateWorklogDraft, worklogPeriodDays } from './effort-worklog';
 
 	let { slug, identifier, mode, worklog, revision, userId, userName, admin, canWrite, onclose, onsaved }: {
 		slug: string; identifier: string; mode: 'create' | 'update' | 'delete'; worklog: EffortWorklog | null;
@@ -21,9 +21,13 @@
 	let currentWorklog = $state(untrack(() => worklog));
 	let owner = $state(untrack(() => worklog?.owner.id ?? userId));
 	let date = $state(untrack(() => worklog?.work_date ?? ''));
+	let endDate = $state('');
+	let skipWeekends = $state(true);
 	let duration = $state(untrack(() => worklog ? formatEffortMinutes(worklog.duration_minutes) : ''));
 	let description = $state(untrack(() => worklog?.description ?? ''));
 	let today = $state('');
+	const periodDays = $derived(mode === 'create' && date <= today && endDate <= today ? worklogPeriodDays(date, endDate, skipWeekends) : 0);
+	const dailyMinutes = $derived(validateWorklogDraft(date, duration, description, today).minutes);
 	let enabled = $state(false);
 	let owners = $state<EffortUser[]>([]);
 	let ready = $state(false);
@@ -48,6 +52,7 @@
 			enabled = settings.enabled;
 			owners = candidates;
 			if (!date) date = today;
+			if (!endDate) endDate = date;
 			ready = true;
 			if (!enabled) error = m['efforts.planning.disabled']();
 			return true;
@@ -87,6 +92,8 @@
 			baselineRevision = page.revision;
 			owner = fresh?.owner.id ?? userId;
 			date = fresh?.work_date ?? today;
+			endDate = date;
+			skipWeekends = true;
 			duration = fresh ? formatEffortMinutes(fresh.duration_minutes) : '';
 			description = fresh?.description ?? '';
 			conflict = false;
@@ -107,13 +114,15 @@
 			if (mode === 'delete') attempt = { mode, request: mutation };
 			else {
 				const valid = validateWorklogDraft(date, duration, description, today);
+				if (mode === 'create' && (!validateWorklogDraft(endDate, duration, description, today).dateValid || endDate < date)) errors.end_date = m['efforts.worklogs.invalid_period']();
+				else if (mode === 'create' && !periodDays) errors.end_date = m['efforts.worklogs.empty_period']();
 				if (!valid.dateValid) errors.work_date = m['efforts.worklogs.invalid_date']();
 				if (!valid.durationValid) errors.duration_minutes = m['efforts.worklogs.invalid_duration']();
 				if (!valid.descriptionValid) errors.description = m['efforts.worklogs.invalid_description']();
 				if (mode === 'create' && admin && !owners.some(user => user.id === owner)) errors.owner_user_id = m['efforts.worklogs.invalid_owner']();
 				if (Object.keys(errors).length) return;
 				const request = { ...mutation, work_date: date, duration_minutes: valid.minutes!, description: description || null };
-				attempt = mode === 'create' ? { mode, request: { ...request, owner_user_id: owner } } : { mode, request };
+				attempt = mode === 'create' ? { mode, request: { ...request, owner_user_id: owner, end_date: endDate, skip_weekends: skipWeekends } } : { mode, request };
 			}
 		}
 		const submission = attempt;
@@ -138,6 +147,7 @@
 				errors.duration_minutes = m['efforts.worklogs.daily_limit']();
 			} else if (code === 'VALIDATION_ERROR') {
 				for (const detail of result.error?.details ?? []) {
+					if (detail.field === 'end_date') errors.end_date = m['efforts.worklogs.invalid_period']();
 					if (detail.field === 'work_date') errors.work_date = m['efforts.worklogs.invalid_date']();
 					if (detail.field === 'duration_minutes') errors.duration_minutes = m['efforts.worklogs.invalid_duration']();
 					if (detail.field === 'description') errors.description = m['efforts.worklogs.invalid_description']();
@@ -167,7 +177,7 @@
 			<Dialog.Title>{title}</Dialog.Title>
 			<Dialog.Description>{mode === 'delete' ? m['efforts.worklogs.delete_description']() : m['efforts.worklogs.form_description']()}</Dialog.Description>
 		</Dialog.Header>
-		<form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void save(); }}>
+		<form class="space-y-3" novalidate onsubmit={(event) => { event.preventDefault(); void save(); }}>
 			{#if mode !== 'delete'}
 				<div class="space-y-1">
 					<label for={`${id}-owner`} class="text-xs font-medium">{m['efforts.worklogs.owner']()}</label>
@@ -178,15 +188,32 @@
 					{:else}<input id={`${id}-owner`} readonly value={currentWorklog ? name(currentWorklog.owner) : userName} class="w-full bg-transparent py-1" />{/if}
 					{#if errors.owner_user_id}<p id={`${id}-owner-error`} role="alert" class="text-xs text-destructive">{errors.owner_user_id}</p>{/if}
 				</div>
+				<div class="grid gap-3 {mode === 'create' ? 'grid-cols-2' : ''}">
 				<div class="space-y-1">
-					<label for={`${id}-date`} class="text-xs font-medium">{m['efforts.worklogs.date']()}</label>
+					<label for={`${id}-date`} class="text-xs font-medium">{mode === 'create' ? m['efforts.worklogs.from']() : m['efforts.worklogs.date']()}</label>
 					<input id={`${id}-date`} type="date" bind:value={date} max={today || undefined} min="0001-01-01" disabled={locked} aria-invalid={!!errors.work_date} aria-describedby={errors.work_date ? `${id}-date-error` : undefined} class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-2" />
 					{#if errors.work_date}<p id={`${id}-date-error`} role="alert" class="text-xs text-destructive">{errors.work_date}</p>{/if}
 				</div>
+				{#if mode === 'create'}
+					<div class="space-y-1">
+						<label for={`${id}-end`} class="text-xs font-medium">{m['efforts.worklogs.to']()}</label>
+						<input id={`${id}-end`} type="date" bind:value={endDate} min={date || '0001-01-01'} max={today || undefined} disabled={locked} aria-invalid={!!errors.end_date} aria-describedby={errors.end_date ? `${id}-end-error` : undefined} class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-2" />
+						{#if errors.end_date}<p id={`${id}-end-error`} role="alert" class="text-xs text-destructive">{errors.end_date}</p>{/if}
+					</div>
+				{/if}
+				</div>
+				{#if mode === 'create'}
+					<label class="flex items-center gap-2 text-xs">
+						<input type="checkbox" bind:checked={skipWeekends} disabled={locked} />{m['efforts.worklogs.skip_weekends']()}
+					</label>
+				{/if}
 				<div class="space-y-1">
-					<p class="text-xs font-medium">{m['efforts.worklogs.duration']()}</p>
+					<p class="text-xs font-medium">{mode === 'create' ? m['efforts.worklogs.daily_duration']() : m['efforts.worklogs.duration']()}</p>
 					<EffortDurationInput bind:value={duration} label={m['efforts.worklogs.duration']()} disabled={locked} error={errors.duration_minutes ?? ''} />
 				</div>
+				{#if mode === 'create' && periodDays && dailyMinutes !== null && dailyMinutes > 0 && dailyMinutes <= 1440}
+					<p role="status" class="text-xs text-[var(--color-text-secondary)]">{m['efforts.worklogs.period_summary']({ count: periodDays, total: formatEffortMinutes(dailyMinutes * periodDays) })}</p>
+				{/if}
 				<div class="space-y-1">
 					<label for={`${id}-description`} class="text-xs font-medium">{m['efforts.worklogs.description']()}</label>
 					<textarea id={`${id}-description`} bind:value={description} rows="4" disabled={locked} aria-invalid={!!errors.description} aria-describedby={`${id}-count${errors.description ? ` ${id}-description-error` : ''}`} class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-2"></textarea>

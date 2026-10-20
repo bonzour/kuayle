@@ -24,11 +24,11 @@
 	let error = $state('');
 	let inputError = $state('');
 	const label = $derived(kind === 'estimate' ? m['efforts.planning.estimate']() : m['efforts.planning.remaining']());
-	const baselineText = $derived(baseline?.value == null ? (kind === 'remaining' ? '0m' : '') : formatEffortMinutes(baseline.value));
+	const baselineText = $derived(baseline?.value == null ? (kind === 'remaining' ? '0d' : '') : formatEffortMinutes(baseline.value));
 	const dirty = $derived(text !== baselineText);
 	const stale = $derived(!!baseline && baseline.revision !== summary.revision);
 	const displayValue = $derived(baseline?.value == null
-		? (kind === 'estimate' ? m['efforts.planning.unestimated']() : `0m (${m['efforts.planning.unset']()})`)
+		? (kind === 'estimate' ? m['efforts.planning.unestimated']() : `0d (${m['efforts.planning.unset']()})`)
 		: formatEffortMinutes(baseline.value));
 
 	async function edit() {
@@ -65,7 +65,7 @@
 
 	function apply(value: EffortSummary) {
 		baseline = { value: kind === 'estimate' ? value.own.estimate_minutes : value.own.remaining_minutes, revision: value.revision };
-		text = baseline.value === null ? (kind === 'remaining' ? '0m' : '') : formatEffortMinutes(baseline.value);
+		text = baseline.value === null ? (kind === 'remaining' ? '0d' : '') : formatEffortMinutes(baseline.value);
 	}
 
 	$effect(() => {

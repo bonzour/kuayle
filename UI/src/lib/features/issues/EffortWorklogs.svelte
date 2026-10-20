@@ -6,13 +6,15 @@
 	import { emitAppRefresh } from '$lib/api/refresh';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
-	import type { Issue } from '$lib/types/issue';
+	import type { Issue, IssueHistory } from '$lib/types/issue';
 	import type { EffortUser, EffortWorklog, EffortWorklogPage } from '$lib/types/efforts';
 	import { m } from '$lib/paraglide/messages.js';
 	import { formatEffortMinutes } from './effort-duration';
+	import EffortHistoryEntry from './EffortHistoryEntry.svelte';
+	import { effortHistoryEntries } from './effort-history';
 	import EffortWorklogDialog from './EffortWorklogDialog.svelte';
 
-	let { issue, slug }: { issue: Issue; slug: string } = $props();
+	let { issue, slug, history = [] }: { issue: Issue; slug: string; history?: IssueHistory[] } = $props();
 	const workspace = getCurrentWorkspace();
 	const identity = $derived(`${slug}:${issue.id}:${authState.user?.id}`);
 	const settings = $derived(workspace.efforts?.slug === slug && workspace.efforts.userId === authState.user?.id ? workspace.efforts.settings : null);
@@ -24,8 +26,13 @@
 	let failed = $state(false);
 	let unavailable = $state(false);
 	let expanded = $state(true);
-	let showAll = $state(false);
 	const RECENT_COUNT = 3;
+	let showAll = $state(false);
+	let showAllHistory = $state(false);
+	let recordsExpanded = $state(false);
+	const events = $derived(effortHistoryEntries(history));
+	const visibleEvents = $derived(showAllHistory ? events : events.slice(-RECENT_COUNT));
+	const hiddenEvents = $derived(events.length - visibleEvents.length);
 	const visibleWorklogs = $derived(showAll ? data?.data ?? [] : (data?.data ?? []).slice(0, RECENT_COUNT));
 	const hiddenCount = $derived(Math.max((data?.data.length ?? 0) - RECENT_COUNT, 0));
 	const canWrite = $derived(!!settings?.enabled && (admin || role === 'member') && !failed && !loading);
@@ -76,6 +83,8 @@
 				unavailable = false;
 				expanded = true;
 				showAll = false;
+				showAllHistory = false;
+				recordsExpanded = false;
 			}
 			activeIdentity = key;
 			void reload();
@@ -124,6 +133,23 @@
 	{#if data && loadedIdentity === identity}
 		{#if !settings?.enabled}<p class="text-xs text-[var(--color-text-tertiary)]">{settings ? m['efforts.planning.disabled']() : m['settings.efforts.load_error']()}</p>
 		{:else if role === 'guest'}<p class="text-xs text-[var(--color-text-tertiary)]">{m['efforts.worklogs.readonly']()}</p>{/if}
+		<div class="relative">
+			{#if visibleEvents.length}<div class="absolute left-[9px] top-3 bottom-0 w-px bg-[var(--app-border)]" aria-hidden="true"></div>{/if}
+			{#if hiddenEvents > 0}
+				<button type="button" onclick={() => showAllHistory = true} class="relative z-10 mb-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]">{m['issue.show_earlier']({ n: hiddenEvents })}</button>
+			{/if}
+			{#each visibleEvents as entry (entry.id)}
+				<div class="relative flex items-start gap-3 pb-2.5">
+					<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-bg)] text-[var(--color-text-tertiary)] ring-2 ring-[var(--color-bg)]" aria-hidden="true"><Clock3 size={12} /></div>
+					<EffortHistoryEntry event={entry.effort!} />
+				</div>
+			{:else}<p class="text-xs text-[var(--color-text-tertiary)]">{m['issue.no_activity']()}</p>{/each}
+			{#if showAllHistory && events.length > RECENT_COUNT}
+				<button type="button" onclick={() => showAllHistory = false} class="relative z-10 mt-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]">{m['issue.show_less']()}</button>
+			{/if}
+		</div>
+		<details bind:open={recordsExpanded} data-worklog-records class="border-t border-[var(--app-border)] pt-3">
+			<summary class="mb-3 cursor-pointer text-xs font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">{m['efforts.worklogs.records']()} ({data.total_count})</summary>
 		{#if !data.data.length}<p class="text-xs text-[var(--color-text-tertiary)]">{m['efforts.worklogs.empty']()}</p>{/if}
 		<div class="relative">
 			{#if visibleWorklogs.length > 0}<div class="absolute left-[9px] top-3 bottom-0 w-px bg-[var(--app-border)]" aria-hidden="true"></div>{/if}
@@ -174,6 +200,7 @@
 				<Button size="sm" variant="outline" disabled={loading || !data.has_more} onclick={() => reload(data!.page + 1)}>{m['efforts.worklogs.next']()}</Button>
 			</nav>
 		{/if}
+		</details>
 	{:else if loading}<p role="status" class="text-xs">{m['settings.efforts.loading']()}</p>{/if}
 	</div>
 </section>

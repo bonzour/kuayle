@@ -16,8 +16,9 @@ modifica soltanto la valutazione di «oggi», senza spostare il lavoro storico.
 ## Pianificazione e registro
 
 Pagina completa e pannello mostrano la sezione richiudibile **Effort**. Stima e
-residuo si modificano inline: Invio o uscita salva, Esc annulla. Sono accettati
-minuti interi, `90m`, `2h`, `1h 30m`; non sono ammessi arrotondamenti di frazioni.
+residuo si modificano inline: Invio o uscita salva, Esc annulla. L’unità principale è il giorno da 8 ore: `1` o `1d` vale 480 minuti, `0,5d` vale
+4 ore. Sono accettati anche `1d 2h`, `90m`, `2h` e `1h 30m`; le frazioni di giorno
+sono valide solo se producono minuti interi, senza arrotondamenti.
 Stima assente e zero sono distinti; residuo assente è visualizzato zero con
 «Non impostato». Impostare una stima inizializza soltanto il residuo assente a
 stima meno consuntivo, con minimo zero. Cambiare o rimuovere la stima non cambia
@@ -28,13 +29,24 @@ accessibili a ogni profondità. I totali sono in sola lettura e segnalano i dati
 mancanti; non indicano quante issue siano escluse per privacy. Da disabilitato,
 il riepilogo senza dati propri o aggregati viene nascosto.
 
-**WORK LOG** è sotto **ACTIVITY**, espandibile e nello stesso stile. Il comando
-per mostrare le registrazioni precedenti è sopra i record. La navigazione usa
-pagine da 50, ordinate per data lavoro e inserimento decrescenti. Le righe mostrano
-titolare, durata, descrizione e «inserito da» nelle deleghe.
+**WORK LOG** è sotto **ACTIVITY**, espandibile e nello stesso stile. Raccoglie
+le operazioni Efforts prima mostrate in Activity: stima, registrazioni e sole
+correzioni manuali del residuo. Sono escluse le variazioni automatiche dovute a
+stima, worklog, chiusura o riattivazione; restano conservate nello storico server.
+Il comando per mostrare gli eventi precedenti è sopra le righe. La sottosezione
+richiudibile **Registrazioni** conserva l’elenco operativo, con pagine da 50
+ordinate per data lavoro e inserimento decrescenti, titolare, durata, descrizione,
+«inserito da» nelle deleghe e azioni di modifica/eliminazione.
 
 «Registra lavoro» propone la data corrente riletta dal server nel fuso workspace.
-La durata è da 1 a 1.440 minuti; il totale giornaliero della persona nel workspace
+I campi **Dal/Al** includono entrambi gli estremi e applicano lo stesso effort
+per ciascuna data selezionata. Sabato e domenica sono esclusi per impostazione
+predefinita; deselezionando l’opzione vengono inclusi. Le festività non sono
+escluse automaticamente. L’anteprima mostra il numero di giorni e l’effort totale.
+Con Dal uguale ad Al si registra un solo giorno. L’intero periodo è salvato in
+un’unica transazione: una data che supera il limite annulla tutte le registrazioni,
+lo storico e la variazione del residuo. Un retry ripete lo stesso tentativo
+senza duplicare il periodo. La durata per giorno è da 1 a 1.440 minuti; il totale giornaliero della persona nel workspace
 non può superare 24 ore. La descrizione è facoltativa, multilinea, fino a 2.000
 caratteri Unicode. Sono ammesse date passate e oggi, anche su issue chiuse, senza
 stima o assegnazione. Un nuovo worklog riduce il residuo impostato fino a zero;
@@ -56,8 +68,8 @@ Duplicare copia soltanto la stima e inizializza il residuo (zero se chiusa), sen
 worklog o storico copiati; da disabilitato non copia Efforts. Eliminare una issue
 rimuove i suoi worklog e storico, mantenendo quelli dei figli conservati.
 
-Activity mostra valori prima/dopo, operatore e causa delle variazioni, inclusi
-sistema/GitHub e lavoro eliminato. Le altre sessioni aggiornano riepilogo,
+WORK LOG mostra valori prima/dopo, operatore e causa delle operazioni Efforts
+visibili, incluso il lavoro eliminato; ACTIVITY contiene le altre modifiche issue. Le altre sessioni aggiornano riepilogo,
 registro, attività e totali; alla riconnessione rileggono i dati autorizzati.
 I refresh non cambiano la revisione di una bozza aperta. Dopo un errore di rete
 il retry conserva chiave e payload; un conflitto richiede riallineamento esplicito.

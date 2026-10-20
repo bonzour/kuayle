@@ -133,3 +133,39 @@ completo, e non una promessa di latenza. La fixture e il piano restano
 riproducibili nel test; non viene introdotta una soglia SLA arbitraria. Per grandi
 gerarchie la latenza osservata del riepilogo resta un dato da considerare nel
 monitoraggio del rilascio.
+
+## Estensione: periodi, giorni da 8 ore e WORK LOG
+
+Richiesta del 2026-10-20, successiva alla baseline V1. Le convenzioni UI sui
+numeri senza unità e la collocazione dello storico sono aggiornate nei
+[contratti](efforts-contracts.md#inserimento-per-periodo-e-timeline-efforts-2026-10-20)
+e nella [guida d’uso](efforts-usage.md).
+
+- [TestEffortPeriodDates e TestEffortPeriodPostgres](../../BE/internal/repository/efforts_period_test.go)
+  coprono estremi inclusivi, weekend facoltativi, anno bisestile, cambio ora,
+  date minime/massime, intervalli invalidi/vuoti/futuri, delega, singola revisione,
+  replay persistente, conflitto di payload e budget su periodi sovrapposti tra
+  issue. Un limite superato in una data successiva annulla righe precedenti,
+  storico, residuo e ricevuta.
+- [HTTP worklog](../../BE/cmd/server/efforts_worklogs_http_test.go) verifica
+  campi periodo, replay e dettagli `end_date` con le route reali.
+- Unit test UI verificano conversione esatta `1d = 480m`, default giorni,
+  frazioni con virgola/punto, rifiuto delle frazioni di minuto, conteggio dei
+  giorni indipendente dal fuso e filtro dei Remaining automatici, compresi gli
+  eventi storici marcati manuali.
+- E2E in pagina e pannello verificano anteprima e inclusione weekend, retry dello
+  stesso periodo dopo risposta persa, conservazione delle bozze, spostamento
+  Efforts da Activity a WORK LOG, soli Remaining manuali e Registrazioni
+  richiudibili con CRUD e paginazione precedenti.
+
+Suite Go completa su PostgreSQL con `-race`: **1.021 test/subtest passati**,
+6 skip preesistenti estranei a Efforts, nessuno skip Efforts. UI: **43 unit test
+passati**, controllo Svelte con zero errori e lo stesso warning preesistente.
+Build di produzione e selezione Efforts settings/planning/worklogs, navigazione
+e team privati: **60 E2E passati**. Nessuna nuova migrazione.
+
+Dopo la compattazione del dialogo (Dal/Al affiancati) e il conteggio dei giorni
+senza enumerare il periodo, nuova build e **10 E2E mirati passati**: periodi,
+filtro storico, CRUD, paginazione/tastiera, Unicode e giorni come unità primaria.
+Verificati visivamente dialogo periodo e WORK LOG nelle due viste. Backend locale
+riavviato con questa versione; `/ready` e frontend rispondono 200.
