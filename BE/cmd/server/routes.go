@@ -117,6 +117,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Timesheet selectors authorize every workspace independently in the repository.
 	scoped(api, http.MethodGet, "/timesheets/options", h.timesheet.Options, "efforts:read")
+	scoped(api, http.MethodGet, "/timesheets/issues", h.timesheet.Issues, "efforts:read")
 	scoped(api, http.MethodGet, "/timesheets", h.timesheet.Grid, "efforts:read")
 	scoped(api, http.MethodGet, "/timesheets/worklogs", h.timesheet.Worklogs, "efforts:read")
 

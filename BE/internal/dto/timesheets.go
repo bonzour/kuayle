@@ -304,3 +304,51 @@ type TimesheetWorklogsResponse struct {
 	TimesheetReadResponse
 	Data []TimesheetWorklog `json:"data"`
 }
+
+type TimesheetIssueParams struct {
+	WorkspaceID uuid.UUID
+	Search      string
+	Page        int
+}
+
+func ParseTimesheetIssues(values url.Values) (TimesheetIssueParams, error) {
+	p := TimesheetIssueParams{Page: 1}
+	for key, items := range values {
+		if len(items) != 1 || !slices.Contains([]string{"workspace_id", "search", "page", "per_page"}, key) {
+			return p, ErrTimesheetParams
+		}
+	}
+	var err error
+	if p.WorkspaceID, err = uuid.Parse(values.Get("workspace_id")); err != nil {
+		return p, ErrTimesheetParams
+	}
+	p.Search = strings.TrimSpace(values.Get("search"))
+	if values.Has("page") {
+		if p.Page, err = strconv.Atoi(values.Get("page")); err != nil {
+			return p, ErrTimesheetParams
+		}
+	}
+	if values.Has("per_page") && values.Get("per_page") != "50" {
+		return p, ErrTimesheetParams
+	}
+	return p, p.Validate()
+}
+
+func (p TimesheetIssueParams) Validate() error {
+	if p.WorkspaceID == uuid.Nil || p.Page < 1 || int64(p.Page) > domain.EffortMaxSafeInteger/domain.EffortPageSize {
+		return ErrTimesheetParams
+	}
+	return nil
+}
+
+type TimesheetIssueOption struct {
+	ID         uuid.UUID           `json:"id"`
+	Identifier string              `json:"identifier"`
+	Title      string              `json:"title"`
+	Team       TimesheetTeamOption `json:"team"`
+}
+
+type TimesheetIssuesResponse struct {
+	ListResponse[TimesheetIssueOption]
+	Workspace TimesheetWorkspaceOption `json:"workspace"`
+}

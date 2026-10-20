@@ -115,3 +115,28 @@ export interface TimesheetWorklog {
 }
 
 export interface TimesheetWorklogs extends TimesheetReadResponse { data: TimesheetWorklog[] }
+
+export interface TimesheetIssueOption {
+	id: string;
+	identifier: string;
+	title: string;
+	team: TimesheetTeamOption;
+}
+
+export interface TimesheetIssues {
+	workspace: TimesheetWorkspaceOption;
+	data: TimesheetIssueOption[];
+	total_count: number;
+	page: number;
+	per_page: number;
+	has_more: boolean;
+}
+
+export interface TimesheetWorklogTarget {
+	mode: 'create' | 'update' | 'delete';
+	workspaceId?: string;
+	identifier?: string;
+	date?: string;
+	ownerId?: string;
+	worklogId?: string;
+}

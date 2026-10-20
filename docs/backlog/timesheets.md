@@ -1,6 +1,6 @@
 # Timesheets — Epic e Stories
 
-Data: **2026-10-20**. Stato: **fondazioni EP-01, personale EP-02, aggregati EP-03 e UI/navigazione EP-04 implementati; EP-05/06 pendenti**.
+Data: **2026-10-21**. Stato: **fondazioni EP-01, personale EP-02, aggregati EP-03, UI/navigazione EP-04 e operazioni EP-05 implementati; EP-06 pendente**.
 Fonte: [TS-01 v0.2 — requisiti Timesheets](../requirements/timesheets/README.md).
 Baseline analizzata: `feature/efforts`, commit `9007650`, incluse le modifiche
 locali Efforts descritte nel requisito. Nessun ticket esterno creato.
@@ -341,6 +341,15 @@ Timesheet, **per** orientarmi tra modalità, filtri e risultati.
 **Dipendenze:** TS-US-06, TS-US-11. **Verifica:** E2E URL, storia browser e tastiera.
 
 ### TS-EP-05 — Operazioni Efforts nel workspace corretto
+
+**Incremento EP-05:** implementate TS-US-13–15: selezione esplicita di workspace
+e issue, anche senza lavoro nella griglia; celle vuote per registrare, dettaglio
+con inserimento/correzione/eliminazione e riuso del dialogo Efforts. Capacità,
+delega, data locale e revisione sono rilette nel workspace destinatario;
+scritture, conflitti e retry conservano gli invarianti Efforts. Dopo salvataggio
+si aggiornano griglia e dettaglio senza cambiare filtri o periodo. Vedere
+[verifica EP-05](../requirements/timesheets/acceptance-ep05.md).
+Aggiornamenti remoti multi-workspace e accettazione integrata restano EP-06.
 
 **Valore:** registrare e correggere lavoro dal Timesheet usando le garanzie già
 implementate in Efforts, anche quando la vista comprende molti workspace.

@@ -12,13 +12,15 @@
 	import TimesheetPeriodPicker from '$lib/features/timesheets/TimesheetPeriodPicker.svelte';
 	import TimesheetGrid from '$lib/features/timesheets/TimesheetGrid.svelte';
 	import TimesheetWorklogDetail from '$lib/features/timesheets/TimesheetWorklogDetail.svelte';
+	import TimesheetWorklogDialog from '$lib/features/timesheets/TimesheetWorklogDialog.svelte';
+	import { emitAppRefresh } from '$lib/api/refresh';
 	import { personLabel } from '$lib/features/timesheets/people';
 	import { periodForDate } from '$lib/features/timesheets/period';
 	import { readTimesheetLocation, writeTimesheetLocation, type TimesheetLocation } from '$lib/features/timesheets/navigation';
 	import { allTimesheetFilters, changeMode, changeWorkspaces, reconcileFilters } from '$lib/features/timesheets/selection';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { getTimesheet, getTimesheetOptions } from '$lib/api/timesheets';
-	import type { TimesheetMode, TimesheetOptions, TimesheetSelection, TimesheetGrid as TimesheetGridData, TimesheetPeriod, TimesheetWorkspaceOption, TimesheetGroup, TimesheetQuery } from '$lib/types/timesheets';
+	import type { TimesheetMode, TimesheetOptions, TimesheetSelection, TimesheetGrid as TimesheetGridData, TimesheetPeriod, TimesheetWorkspaceOption, TimesheetGroup, TimesheetQuery, TimesheetWorklogTarget } from '$lib/types/timesheets';
 	import { m } from '$lib/paraglide/messages.js';
 
 	let view = $state<TimesheetLocation>(readTimesheetLocation(new URLSearchParams()));
@@ -34,6 +36,10 @@
 	let generation = 0;
 	let grid = $state<TimesheetGridData | null>(null);
 	let reference = $state<TimesheetWorkspaceOption | null>(null);
+	let personalWorkspaces = $state<TimesheetWorkspaceOption[]>([]);
+	const canRecord = $derived(personalWorkspaces.some(w => w.can_record_work));
+	let operation = $state<{ target: TimesheetWorklogTarget; restoreFocus: () => void } | null>(null);
+	let detailRefresh = $state(0);
 	let heading: HTMLHeadingElement;
 	let returnTabFocus = $state<HTMLElement | null>(null);
 	let detail = $state<{ group: TimesheetGroup; date: string; query: TimesheetQuery; returnFocus: HTMLElement | null } | null>(null);
@@ -62,6 +68,27 @@
 
 	function openCell(group: TimesheetGroup, date: string, ownerId?: string) {
 		detail = { group, date, query: $state.snapshot({ ...readQuery(), owners: ownerId ? [ownerId] : owners }), returnFocus: document.activeElement as HTMLElement | null };
+	}
+
+	function startWorklog(target: TimesheetWorklogTarget) {
+		const origin = document.activeElement as HTMLElement | null;
+		operation = { target, restoreFocus: () => {
+			if (origin?.isConnected) origin.focus();
+			else if (detail) (document.querySelector('[data-timesheet-detail] button') as HTMLElement | null)?.focus();
+			else heading?.focus();
+		} };
+	}
+
+	function createFromCell(group: TimesheetGroup, date: string, ownerId?: string) {
+		startWorklog({ mode: 'create', workspaceId: group.workspace_id!, identifier: group.identifier!, date, ownerId: ownerId ?? authState.user?.id });
+	}
+
+	function worklogSaved(slug: string) {
+		operation = null;
+		feedback = m['timesheet.work_saved']();
+		detailRefresh++;
+		emitAppRefresh(['issues'], slug);
+		void load($state.snapshot(view), true, true);
 	}
 
 	function selectOwners(value: TimesheetSelection) {
@@ -98,20 +125,22 @@
 		];
 	});
 
-	async function load(request = $state.snapshot(view), recover = true) {
+	async function load(request = $state.snapshot(view), recover = true, preserveDetail = false) {
 		const id = ++generation;
 		const userId = authState.user?.id;
 		const url = new URL(page.url);
 		const current = () => id === generation && userId === authState.user?.id;
 		const previousScope = grid?.mode === request.mode ? grid.scope.workspace_ids : [];
 		view = request;
-		loading = true; failed = false; invalidLink = false; grid = null; detail = null;
+		loading = true; failed = false; invalidLink = false; grid = null;
+		if (!preserveDetail) detail = null;
 		try {
 			const result = await getTimesheetOptions(request.mode, request.filters);
 			if (!current()) return;
 			options = result;
 			const personal = request.mode === 'personal' ? result : await getTimesheetOptions('personal', allTimesheetFilters());
 			if (!current()) return;
+			personalWorkspaces = personal.workspaces;
 			const nextReference = personal.workspaces.find(w => w.id === request.referenceId)
 				?? (!request.referenceId ? personal.workspaces.find(w => w.slug === page.params.workspaceSlug) : undefined)
 				?? personal.workspaces[0];
@@ -125,7 +154,7 @@
 				if (!current()) return;
 				const lastPage = Math.max(1, Math.ceil(response.total_count / response.per_page));
 				if (response.page > lastPage) {
-					await load({ ...resolved, groupPage: lastPage }, false);
+					await load({ ...resolved, groupPage: lastPage }, false, preserveDetail);
 					return;
 				}
 				grid = response;
@@ -139,7 +168,7 @@
 			}
 		} catch (error) {
 			if (!current()) return;
-			grid = null; options = null; reference = null;
+			grid = null; options = null; reference = null; personalWorkspaces = []; detail = null;
 			const status = (error as { status?: number })?.status;
 			if (recover && (status === 403 || status === 404)) {
 				feedback = m['timesheet.access_changed']();
@@ -198,6 +227,7 @@
 			grid = null; detail = null;
 			if (context !== `${userId}/${slug}`) {
 				options = null; reference = null;
+				personalWorkspaces = []; operation = null;
 				context = `${userId}/${slug}`;
 			}
 			feedback = pendingFeedback?.href === href ? pendingFeedback.message : '';
@@ -245,9 +275,12 @@
 		<Tabs.Content value={options ? mode : 'personal'} class="min-h-0 min-w-0 flex-1 overflow-y-auto">
 			<main>
 				<div class="mx-auto w-full max-w-[1440px] space-y-5 px-4 py-6 sm:px-6">
-					<div class="flex items-center justify-between gap-3">
+					<div class="flex flex-wrap items-center justify-between gap-3">
 						<p role="status" class="text-sm text-[var(--color-text-secondary)]">{feedback}</p>
-						<Button variant="outline" size="sm" disabled={loading || invalidLink} onclick={() => load()}><RefreshCw size={14} />{m['timesheet.refresh']()}</Button>
+						<div class="flex shrink-0 gap-2">
+							{#if canRecord && !invalidLink}<Button size="sm" disabled={loading} onclick={() => startWorklog({ mode: 'create', ownerId: mode !== 'personal' && owners?.length === 1 ? owners[0] : authState.user?.id })}>{m['efforts.worklogs.create']()}</Button>{/if}
+							<Button variant="outline" size="sm" disabled={loading || invalidLink} onclick={() => load()}><RefreshCw size={14} />{m['timesheet.refresh']()}</Button>
+						</div>
 					</div>
 					{#if period && reference}
 						<TimesheetPeriodPicker value={period} {reference} disabled={loading} onchange={selectPeriod} />
@@ -277,7 +310,7 @@
 							{#if grid.empty_reason}
 								<p class="rounded-lg border border-[var(--app-border)] p-4 text-sm text-[var(--color-text-secondary)]">{grid.empty_reason === 'period' ? m['timesheet.no_work']() : m['timesheet.no_results']()}</p>
 							{/if}
-							<TimesheetGrid value={grid} oncell={openCell} onperson={(id) => selectOwners([id])} onpage={(value) => navigate({ ...view, groupPage: value })} />
+							<TimesheetGrid value={grid} oncell={openCell} oncreate={createFromCell} onperson={(id) => selectOwners([id])} onpage={(value) => navigate({ ...view, groupPage: value })} />
 						{/if}
 					{/if}
 				</div>
@@ -287,5 +320,11 @@
 </div>
 
 {#if detail}
-	<TimesheetWorklogDetail {...detail} fallbackFocus={() => heading?.focus()} onclose={() => detail = null} onaccesschanged={accessChanged} />
+	<TimesheetWorklogDetail {...detail} refresh={detailRefresh} onaction={startWorklog} fallbackFocus={() => heading?.focus()} onclose={() => detail = null} onaccesschanged={accessChanged} />
+{/if}
+
+{#if operation && authState.user}
+	{#key operation}
+		<TimesheetWorklogDialog target={operation.target} returnFocus={operation.restoreFocus} onclose={() => operation = null} onsaved={worklogSaved} onaccesschanged={accessChanged} />
+	{/key}
 {/if}

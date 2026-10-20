@@ -1,5 +1,9 @@
 import { api } from './client';
-import type { TimesheetFilters, TimesheetMode, TimesheetOptions, TimesheetQuery, TimesheetGrid, TimesheetWorklogs } from '$lib/types/timesheets';
+import type { TimesheetFilters, TimesheetMode, TimesheetOptions, TimesheetQuery, TimesheetGrid, TimesheetWorklogs, TimesheetIssues } from '$lib/types/timesheets';
+
+export function getTimesheetIssues(workspaceId: string, search = '', page = 1): Promise<TimesheetIssues> {
+	return api.get(`/api/timesheets/issues?${new URLSearchParams({ workspace_id: workspaceId, search, page: String(page) })}`);
+}
 
 export function getTimesheetOptions(mode: TimesheetMode, filters: TimesheetFilters): Promise<TimesheetOptions> {
 	return api.get(`/api/timesheets/options?${timesheetFiltersQuery(mode, filters)}`);

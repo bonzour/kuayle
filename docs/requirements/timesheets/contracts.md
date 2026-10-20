@@ -1,12 +1,13 @@
-# Timesheets — contratti API EP-01/EP-02/EP-03
+# Timesheets — contratti API EP-01–EP-05
 
-Data: **2026-10-20**. Fonte: [TS-01 v0.2](README.md).
+Data: **2026-10-21**. Fonte: [TS-01 v0.2](README.md).
 
 ## Stato e autorizzazione
 
-Sono operativi `GET /api/timesheets/options`, `GET /api/timesheets` e
-`GET /api/timesheets/worklogs`. Griglia e dettaglio supportano `personal`, `person`, `project`, `workspace` e
-`team`. Le parti di TS-US-17 relative alle scritture restano alle Epic dedicate.
+Sono operativi `GET /api/timesheets/options`, `GET /api/timesheets`,
+`GET /api/timesheets/worklogs` e `GET /api/timesheets/issues`. Griglia e dettaglio
+supportano `personal`, `person`, `project`, `workspace` e `team`. EP-05 integra
+le scritture attraverso le route issue Efforts esistenti.
 
 Ogni endpoint richiede autenticazione e `efforts:read` per i PAT. Il repository
 interseca membership corrente, ruolo, visibilità e allowlist `workspace_slugs`.
@@ -193,6 +194,52 @@ Non è promesso uno snapshot persistente fra richieste diverse.
 In entrambe le letture, un errore in qualunque ambito impedisce la risposta
 completa. `work_date` non viene convertita fra fusi. Team/progetto sono quelli
 attuali dell'issue; i comandi di scrittura restano sulle route Efforts esistenti.
+
+## Ricerca issue e operazioni dell'incremento EP-05
+
+`GET /api/timesheets/issues?workspace_id=<UUID>&search=<testo>&page=1`.
+Richiede autenticazione e `efforts:read`, senza richiedere `issues:read`.
+`workspace_id` è obbligatorio e identifica un solo workspace con membership
+corrente, entro l'allowlist PAT. `search` è facoltativo e cerca sottostringhe
+case-insensitive nel titolo o identificativo; vuoto mostra le issue recenti.
+`page` parte da 1 e le pagine contengono 50 elementi; `per_page`, se presente,
+deve essere `50`. Parametri ripetuti/sconosciuti o non validi producono 400
+`INVALID_PARAMS`; workspace inesistenti/inaccessibili producono lo stesso 404.
+
+La risposta espone `workspace` con le capacità locali e `data` con sole issue
+`{id, identifier, title, team}`, più `total_count`, `page`, `per_page`, `has_more`.
+Ordine `updated_at DESC, id DESC`; autorizzazione, metadati, conteggio e pagina
+condividono un unico snapshot SQL. La ricerca include issue prive di worklog,
+senza applicare periodo o filtri della griglia. Guest, PAT in sola lettura ed
+Efforts disabilitato conservano letture autorizzate ma non capacità di scrittura.
+Non sono esposti descrizioni o altri metadati completi delle issue.
+
+La toolbar offre Registra lavoro se almeno un workspace personale è scrivibile,
+anche quando fuori dalla selezione amministrativa. La scelta globale richiede
+workspace e issue espliciti; le celle issue vuote scrivibili precompilano
+workspace, issue e giorno. Le celle con ore aprono il dettaglio, che offre
+registrazione, modifica ed eliminazione dei singoli worklog autorizzati.
+Subtotali e totali non sono record modificabili.
+
+Prima di modificare/eliminare si rileggono capacità locali, worklog corrente e
+revisione, raggiungendo anche le pagine successive delle API Efforts. Ogni
+scrittura usa le route issue Efforts nel workspace destinatario; `efforts:read`
+e `efforts:write` restano obbligatori per i PAT. La selezione delega conserva il
+vincolo di sessione e i destinatari ammissibili per l'issue. Un titolare
+precompilato non delegabile viene sostituito dal chiamante con feedback esplicito.
+
+Il dialogo condiviso rilegge configurazione, fuso e oggi del destinatario;
+conserva parser, periodi atomici, weekend, limite di 1.440 minuti per
+titolare/data/workspace, storico, residuo, revisioni e retry idempotenti Efforts.
+Un rifiuto conserva la bozza e blocca nuovi invii; il riallineamento esplicito
+sostituisce la bozza con i dati correnti. Il dialogo è indipendente dai
+caricamenti della griglia. Dopo successo si ricaricano griglia e dettaglio,
+riallineando l'eventuale ultima pagina eliminata, senza ampliare filtri o periodo.
+Un salvataggio fuori dai filtri correnti viene comunque confermato.
+
+Le proprietà aggiuntive di `EffortWorklogDialog` sono opzionali: i chiamanti issue
+mantengono i propri default. Le sottoscrizioni remote multi-workspace e
+l'accettazione integrata restano EP-06.
 
 ## Navigazione UI dell'incremento EP-02
 

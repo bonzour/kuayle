@@ -33,6 +33,7 @@ GET /api/public/share/:token/issues
 GET /api/system/update-status
 GET /api/workspaces
 GET /api/timesheets
+GET /api/timesheets/issues
 GET /api/timesheets/options
 GET /api/timesheets/worklogs
 GET /api/workspaces/:slug

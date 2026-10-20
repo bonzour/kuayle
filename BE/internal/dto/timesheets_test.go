@@ -8,6 +8,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestTimesheetIssueParams(t *testing.T) {
+	ws := uuid.NewString()
+	values, err := url.ParseQuery("workspace_id=" + ws + "&search=+EP-05+&page=2&per_page=50")
+	require.NoError(t, err)
+	p, err := ParseTimesheetIssues(values)
+	require.NoError(t, err)
+	require.Equal(t, uuid.MustParse(ws), p.WorkspaceID)
+	require.Equal(t, "EP-05", p.Search)
+	require.Equal(t, 2, p.Page)
+	for _, query := range []string{"", "workspace_id=bad", "workspace_id=" + uuid.Nil.String(),
+		"workspace_id=" + ws + "&page=0", "workspace_id=" + ws + "&page=1.5", "workspace_id=" + ws + "&page=9007199254740991",
+		"workspace_id=" + ws + "&per_page=51", "workspace_id=" + ws + "&search=a&search=b", "workspace_id=" + ws + "&mode=person"} {
+		values, err := url.ParseQuery(query)
+		require.NoError(t, err)
+		_, err = ParseTimesheetIssues(values)
+		require.ErrorIs(t, err, ErrTimesheetParams, query)
+	}
+}
+
 func TestTimesheetSelections(t *testing.T) {
 	id := uuid.New()
 	for _, tc := range []struct {

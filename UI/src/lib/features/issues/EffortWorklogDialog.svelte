@@ -11,21 +11,25 @@
 	import { formatEffortMinutes } from './effort-duration';
 	import { validateWorklogDraft, worklogPeriodDays } from './effort-worklog';
 
-	let { slug, identifier, mode, worklog, revision, userId, userName, admin, canWrite, onclose, onsaved }: {
+	let { slug, identifier, mode, worklog, revision, userId, userName, admin, canWrite, initialDate = '', initialOwnerId, workspaceLabel = '', returnFocus, onaccesschanged, onclose, onsaved }: {
 		slug: string; identifier: string; mode: 'create' | 'update' | 'delete'; worklog: EffortWorklog | null;
 		revision: number; userId: string; userName: string; admin: boolean; canWrite: boolean;
 		onclose: () => void; onsaved: () => void;
+		initialDate?: string; initialOwnerId?: string; workspaceLabel?: string;
+		returnFocus?: () => void; onaccesschanged?: () => void;
 	} = $props();
 	type Attempt = { mode: 'create'; request: CreateEffortWorklogRequest } | { mode: 'update'; request: UpdateEffortWorklogRequest } | { mode: 'delete'; request: DeleteEffortWorklogRequest };
 	let baselineRevision = $state(untrack(() => revision));
 	let currentWorklog = $state(untrack(() => worklog));
 	let owner = $state(untrack(() => worklog?.owner.id ?? userId));
-	let date = $state(untrack(() => worklog?.work_date ?? ''));
+	let date = $state(untrack(() => worklog?.work_date ?? initialDate));
 	let endDate = $state('');
 	let skipWeekends = $state(true);
 	let duration = $state(untrack(() => worklog ? formatEffortMinutes(worklog.duration_minutes) : ''));
 	let description = $state(untrack(() => worklog?.description ?? ''));
 	let today = $state('');
+	let timezone = $state('');
+	let ownerFeedback = $state('');
 	const periodDays = $derived(mode === 'create' && date <= today && endDate <= today ? worklogPeriodDays(date, endDate, skipWeekends) : 0);
 	const dailyMinutes = $derived(validateWorklogDraft(date, duration, description, today).minutes);
 	let enabled = $state(false);
@@ -49,18 +53,24 @@
 			const [settings, candidates] = await Promise.all([getEffortSettings(slug), mode === 'create' && admin ? listEffortWorklogOwners(slug, identifier) : Promise.resolve([])]);
 			if (!current()) return false;
 			today = settings.today;
+			timezone = settings.timezone;
 			enabled = settings.enabled;
 			owners = candidates;
+			if (!ready && mode === 'create' && initialOwnerId) {
+				owner = admin && candidates.some(user => user.id === initialOwnerId) ? initialOwnerId : userId;
+				if (owner !== initialOwnerId) ownerFeedback = m['timesheet.owner_fallback']();
+			}
 			if (!date) date = today;
 			if (!endDate) endDate = date;
 			ready = true;
-			if (!enabled) error = m['efforts.planning.disabled']();
+			if (!enabled) { error = m['efforts.planning.disabled'](); onaccesschanged?.(); }
 			return true;
 		} catch (failure) {
 			if (!current()) return false;
 			const status = (failure as { status?: number }).status;
-			denied = status === 403 || status === 404;
+			denied = status === 401 || status === 403 || status === 404;
 			error = status === 403 ? m['efforts.worklogs.denied']() : status === 404 ? m['efforts.planning.unavailable']() : m['efforts.worklogs.load_error']();
+			if (denied) onaccesschanged?.();
 			return false;
 		}
 	}
@@ -158,10 +168,12 @@
 				enabled = false;
 				error = m['efforts.planning.disabled']();
 				emitAppRefresh(['workspace'], slug);
+				onaccesschanged?.();
 			} else if (result.status === 403 || result.status === 404 || result.status === 401) {
 				denied = true;
 				error = result.status === 403 ? m['efforts.worklogs.denied']() : m['efforts.planning.unavailable']();
 				emitAppRefresh(['workspace', 'issues'], slug);
+				onaccesschanged?.();
 			} else error = attempt ? m['efforts.planning.retry_error']() : m['efforts.worklogs.save_error']();
 		} finally {
 			if (current()) busy = false;
@@ -171,6 +183,7 @@
 
 <Dialog.Root open={true} onOpenChange={(open) => { if (!open && !busy && !attempt) onclose(); }}>
 	<Dialog.Content showCloseButton={!busy && !attempt} class="max-h-[80vh] overflow-y-auto"
+		onCloseAutoFocus={(event) => { if (returnFocus) { event.preventDefault(); returnFocus(); } }}
 		onEscapeKeydown={(event) => { if (busy || attempt) event.preventDefault(); }}
 		onInteractOutside={(event) => { if (busy || attempt) event.preventDefault(); }}>
 		<Dialog.Header>
@@ -178,6 +191,10 @@
 			<Dialog.Description>{mode === 'delete' ? m['efforts.worklogs.delete_description']() : m['efforts.worklogs.form_description']()}</Dialog.Description>
 		</Dialog.Header>
 		<form class="space-y-3" novalidate onsubmit={(event) => { event.preventDefault(); void save(); }}>
+			{#if workspaceLabel}
+				<p class="break-words text-xs text-[var(--color-text-secondary)]">{workspaceLabel} · {identifier}{#if today}{' · '}{timezone} · {m['timesheet.today']()}: {today}{/if}</p>
+			{/if}
+			{#if ownerFeedback}<p role="status" class="text-xs text-[var(--color-text-secondary)]">{ownerFeedback}</p>{/if}
 			{#if mode !== 'delete'}
 				<div class="space-y-1">
 					<label for={`${id}-owner`} class="text-xs font-medium">{m['efforts.worklogs.owner']()}</label>

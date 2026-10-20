@@ -8,7 +8,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale } from '$lib/paraglide/runtime.js';
 
-	let { value, oncell, onpage, onperson }: { value: TimesheetGrid; oncell: (group: TimesheetGroup, date: string, ownerId?: string) => void; onperson: (id: string) => void; onpage: (page: number) => void } = $props();
+	let { value, oncell, oncreate, onpage, onperson }: { value: TimesheetGrid; oncell: (group: TimesheetGroup, date: string, ownerId?: string) => void; oncreate: (group: TimesheetGroup, date: string, ownerId?: string) => void; onperson: (id: string) => void; onpage: (page: number) => void } = $props();
 	let collapsed = $state(new Set<string>());
 	const label = (group: TimesheetGroup) => group.person ? personLabel(group.person, m['timesheet.unavailable_user']()) : group.type === 'no_project' ? m['timesheet.no_project']() : group.type === 'unavailable_project' ? m['timesheet.unavailable_project']() : group.name;
 	const rows = $derived.by(() => {
@@ -69,6 +69,8 @@
 							<td class="px-2 py-2 text-center">
 								{#if group.type === 'issue' && day.minutes > 0}
 									<button class="w-full rounded px-1 py-1 hover:bg-[var(--color-bg-secondary)] focus-visible:outline-2 focus-visible:outline-ring" aria-label={`${group.identifier} · ${day.date} · ${formatTimesheetMinutes(day.minutes)}`} onclick={() => oncell(group, day.date, ownerId)}>{formatTimesheetMinutes(day.minutes)}</button>
+								{:else if group.type === 'issue' && value.workspaces.some(w => w.id === group.workspace_id && w.can_record_work && day.date <= w.today)}
+									<button class="w-full rounded px-1 py-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-secondary)] focus-visible:outline-2 focus-visible:outline-ring" aria-label={`${m['efforts.worklogs.create']()} · ${group.identifier} · ${day.date}`} onclick={() => oncreate(group, day.date, ownerId)}>–</button>
 								{:else}<span class:text-[var(--color-text-tertiary)]={day.minutes === 0}>{day.minutes ? formatTimesheetMinutes(day.minutes) : '–'}</span>{/if}
 							</td>
 						{/each}

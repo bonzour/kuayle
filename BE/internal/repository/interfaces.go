@@ -154,6 +154,7 @@ type IssueHistoryRepo interface {
 }
 
 type TimesheetRepo interface {
+	Issues(context.Context, dto.TimesheetIssueParams) (*dto.TimesheetIssuesResponse, error)
 	Options(context.Context, dto.TimesheetOptionsParams) (*dto.TimesheetOptionsResponse, error)
 	Grid(context.Context, dto.TimesheetReadParams) (*dto.TimesheetGridResponse, error)
 	Worklogs(context.Context, dto.TimesheetReadParams) (*dto.TimesheetWorklogsResponse, error)

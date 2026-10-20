@@ -19,6 +19,15 @@ func NewTimesheetHandler(svc *service.TimesheetService) *TimesheetHandler {
 	return &TimesheetHandler{svc: svc}
 }
 
+func (h *TimesheetHandler) Issues(c echo.Context) error {
+	params, err := dto.ParseTimesheetIssues(c.QueryParams())
+	if err != nil {
+		return timesheetResponse(c, nil, err)
+	}
+	result, err := h.svc.Issues(c.Request().Context(), params)
+	return timesheetResponse(c, result, err)
+}
+
 func (h *TimesheetHandler) Options(c echo.Context) error {
 	params, err := dto.ParseTimesheetOptions(c.QueryParams())
 	if err != nil {

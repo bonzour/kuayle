@@ -13,6 +13,10 @@ func NewTimesheetService(repo repository.TimesheetRepo) *TimesheetService {
 	return &TimesheetService{repo: repo}
 }
 
+func (s *TimesheetService) Issues(ctx context.Context, params dto.TimesheetIssueParams) (*dto.TimesheetIssuesResponse, error) {
+	return s.repo.Issues(ctx, params)
+}
+
 func (s *TimesheetService) Options(ctx context.Context, params dto.TimesheetOptionsParams) (*dto.TimesheetOptionsResponse, error) {
 	return s.repo.Options(ctx, params)
 }
