@@ -19,6 +19,10 @@ func NewWSHandler(hub *realtime.Hub) *WSHandler {
 }
 
 func (h *WSHandler) Handle(c echo.Context) error {
+	channel := c.QueryParam("channel")
+	if channel != "" && channel != "timesheets" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid channel"})
+	}
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 
@@ -29,7 +33,12 @@ func (h *WSHandler) Handle(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "failed to upgrade connection"})
 	}
 
-	client := h.hub.Register(conn, ws.ID, userID)
+	var client *realtime.Client
+	if channel == "timesheets" {
+		client = h.hub.RegisterTimesheets(conn, ws.ID, userID)
+	} else {
+		client = h.hub.Register(conn, ws.ID, userID)
+	}
 	defer h.hub.Unregister(client)
 
 	ctx := c.Request().Context()

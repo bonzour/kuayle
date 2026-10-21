@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 
 const uid = '00000000-0000-0000-0000-000000000010';
 const other = '00000000-0000-0000-0000-000000000020';
@@ -26,7 +26,9 @@ async function fixture(page: Page, enabledA = false) {
 		writes: [] as { path: string; method: string; body: any }[], reads: [] as URL[],
 		loseResponse: false, conflict: false, reject: '', failSuggestions: false, revokeOnSettings: false,
 		delaySuggestions: null as null | { ready: () => void; wait: Promise<void> },
-		receipts: new Map<string, any>()
+		receipts: new Map<string, any>(),
+		sockets: new Map<string, WebSocketRoute[]>(), gridReads: [] as URL[], gridFailure: false,
+		delayGrid: null as null | { ready: () => void; wait: Promise<void> }
 	};
 	const caps = () => workspaces.filter(w => w.slug !== 'b' || state.allowedB).map(w => ({ ...w,
 		today: w.slug === 'b' ? state.todayB : w.today,
@@ -35,7 +37,12 @@ async function fixture(page: Page, enabledA = false) {
 		can_record_work: w.slug === 'a' ? state.enabledA : state.enabledB && state.roleB !== 'guest'
 	}));
 	await page.addInitScript(() => localStorage.setItem('PARAGLIDE_LOCALE', 'en'));
-	await page.routeWebSocket('**/ws', () => {});
+	await page.routeWebSocket(/\/ws(?:\?|$)/, socket => {
+		const url = new URL(socket.url());
+		if (url.searchParams.get('channel') !== 'timesheets') return;
+		const slug = url.pathname.split('/')[3];
+		state.sockets.set(slug, [...state.sockets.get(slug) ?? [], socket]);
+	});
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', r => r.fulfill({ json: [] }));
 	await page.route('**/api/**', async route => {
 		const url = new URL(route.request().url());
@@ -106,7 +113,9 @@ async function fixture(page: Page, enabledA = false) {
 			return route.fulfill({ json: receipt });
 		}
 		if (path === '/api/timesheets' || path === '/api/timesheets/worklogs') {
+			if (path === '/api/timesheets') state.gridReads.push(url);
 			const mode = url.searchParams.get('mode');
+			if (state.gridFailure) return error('INTERNAL_ERROR', 500);
 			const ws = caps().filter(w => (mode === 'personal' || w.can_administer) && select('workspace_ids', caps().map(w => w.id)).includes(w.id));
 			const from = url.searchParams.get('from')!;
 			const to = url.searchParams.get('to')!;
@@ -129,6 +138,7 @@ async function fixture(page: Page, enabledA = false) {
 			return mode === 'personal' ? groups : [{ key: ownerId, id: ownerId, name: person(ownerId).name, person: person(ownerId), type: 'person', workspace_id: null, workspace_slug: null, daily_totals: daily(ownerRecords), total_minutes: ownerRecords.reduce((sum, l) => sum + l.duration_minutes, 0), children: groups }];
 			});
 			const groups = ownerGroups.flat();
+			if (state.delayGrid) { const delay = state.delayGrid; state.delayGrid = null; delay.ready(); await delay.wait; }
 			return route.fulfill({ json: { ...common, groups, people: [person(uid), person(other)], total_count: groups.length, empty_reason: null } });
 		}
 		return route.fulfill({ json: [] });
@@ -322,4 +332,87 @@ test('revocation discovered while opening a form clears the old grid without clo
 	await expect(page.getByRole('button', { name: 'Refresh', exact: true, includeHidden: true })).toBeEnabled();
 	await expect(page.locator('button[aria-label="Log work · B-1 · 2026-10-19"]')).toHaveCount(0);
 	expect(state.writes).toHaveLength(0);
+});
+
+const remoteRefresh = (state: Awaited<ReturnType<typeof fixture>>, slug = 'b') => {
+ const sockets = state.sockets.get(slug)!;
+ sockets.at(-1)!.send(JSON.stringify({ type: 'app.refresh', payload: { resources: ['timesheets'] } }));
+};
+
+test('remote B updates grid and open detail from A without replacing a worklog draft', async ({ page }) => {
+ const state = await fixture(page);
+ await expect.poll(() => state.sockets.get('b')?.length).toBe(1);
+ await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true }).click();
+ await expect(detail(page)).toContainText('51 registrations');
+ state.logs[1].duration_minutes = 61;
+ remoteRefresh(state);
+ await expect(detail(page)).toContainText('1h 51m');
+ await detail(page).getByRole('button', { name: 'Log work', exact: true }).click();
+ await fill(page, '2h', 'Draft preserved during remote refresh');
+ state.logs[1].duration_minutes = 121;
+ remoteRefresh(state);
+ await expect(form(page).getByLabel('Description (optional)', { exact: true })).toHaveValue('Draft preserved during remote refresh');
+ await expect(form(page).getByLabel('Duration', { exact: true })).toHaveValue('2h');
+ await expect(page.locator('button[aria-label="B-1 · 2026-10-20 · 2h 51m"]')).toHaveCount(1);
+ expect(state.sockets.get('b')).toHaveLength(1);
+});
+
+test('reconnect reloads B and selecting only A closes B without accepting obsolete frames', async ({ page }) => {
+ const state = await fixture(page);
+ await expect.poll(() => state.sockets.get('b')?.length).toBe(1);
+ state.logs[1].duration_minutes = 61;
+ await state.sockets.get('b')![0].close({ code: 1011, reason: 'network lost' });
+ await expect(page.getByText('Live updates disconnected. Reconnecting and checking access…')).toBeVisible();
+ await expect.poll(() => state.sockets.get('b')?.length).toBe(2);
+ await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 1h 51m', exact: true })).toBeVisible();
+ const currentB = state.sockets.get('b')!.at(-1)!;
+ let closed = false; currentB.onClose(() => closed = true);
+ await page.getByRole('tab', { name: 'By person', exact: true }).click();
+ await expect.poll(() => closed).toBe(true);
+ await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+ expect(new URL(page.url()).searchParams.get('workspace_ids')).toBe(wid(1));
+ await expect(page.getByRole('button', { name: /B-1 · 2026-10-20/ })).toHaveCount(0);
+});
+
+test('remote revocation removes B while retaining an open draft and the selected dates', async ({ page }) => {
+ const state = await fixture(page);
+ await openGlobal(page);
+ await form(page).getByRole('button', { name: 'B-1 · Work B1 Team', exact: true }).click();
+ await fill(page, '1h', 'Draft on revoked workspace');
+ const dates = new URL(page.url()).searchParams.get('from');
+ state.allowedB = false; remoteRefresh(state);
+ await expect(page.locator('button[aria-label="B-1 · 2026-10-20 · 51m"]')).toHaveCount(0);
+ await expect(form(page).getByLabel('Description (optional)', { exact: true })).toHaveValue('Draft on revoked workspace');
+ expect(new URL(page.url()).searchParams.get('from')).toBe(dates);
+ await form(page).getByRole('button', { name: 'Save', exact: true }).click();
+ await expect(form(page)).toBeVisible();
+ expect(state.writes).toHaveLength(0);
+});
+
+test('a remote invalidation supersedes an in-flight grid; failed rereads show no partial total', async ({ page }) => {
+ const state = await fixture(page);
+ let release!: () => void; let started!: () => void;
+ const ready = new Promise<void>(resolve => started = resolve);
+ state.delayGrid = { ready: started, wait: new Promise<void>(resolve => release = resolve) };
+ await page.getByRole('button', { name: 'Refresh', exact: true }).click(); await ready;
+ state.logs[1].duration_minutes = 61; remoteRefresh(state);
+ await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 1h 51m', exact: true })).toBeVisible();
+ release();
+ await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true })).toHaveCount(0);
+ state.gridFailure = true; remoteRefresh(state);
+ await expect(page.getByText('Unable to load Timesheet.')).toBeVisible();
+ await expect(page.getByRole('table')).toHaveCount(0);
+});
+
+test('remote refresh coalesces notifications and retains keyboard focus on the mode selector', async ({ page }) => {
+ const state = await fixture(page);
+ const tab = page.getByRole('tab', { name: 'By person', exact: true });
+ const reads = state.gridReads.length;
+ await tab.focus();
+ for (let i = 0; i < 3; i++) remoteRefresh(state);
+ await expect.poll(() => state.gridReads.length).toBe(reads + 1);
+ await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+ await expect(tab).toBeFocused();
+ await page.keyboard.press('Space');
+ await expect(tab).toHaveAttribute('aria-selected', 'true');
 });

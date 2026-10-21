@@ -1794,6 +1794,7 @@
 	"timesheet.effective_scope": "实际范围",
 	"timesheet.read_only": "只读",
 	"timesheet.recording_allowed": "允许记录工时",
+	"timesheet.updates_reconnecting": "实时更新已断开。正在重新连接并检查访问权限…",
 	"timesheet.refresh": "刷新",
 	"timesheet.failed_load": "无法加载工时表。",
 	"timesheet.no_workspaces": "没有可用的工作区。",

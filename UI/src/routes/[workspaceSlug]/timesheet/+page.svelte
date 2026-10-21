@@ -16,6 +16,7 @@
 	import { emitAppRefresh } from '$lib/api/refresh';
 	import { personLabel } from '$lib/features/timesheets/people';
 	import { periodForDate } from '$lib/features/timesheets/period';
+	import { createTimesheetSubscriptions } from '$lib/features/timesheets/subscriptions';
 	import { readTimesheetLocation, writeTimesheetLocation, type TimesheetLocation } from '$lib/features/timesheets/navigation';
 	import { allTimesheetFilters, changeMode, changeWorkspaces, reconcileFilters } from '$lib/features/timesheets/selection';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
@@ -30,6 +31,7 @@
 	const period = $derived(view.period);
 	let options = $state<TimesheetOptions | null>(null);
 	let loading = $state(true);
+	let refreshingRemote = $state(false);
 	let failed = $state(false);
 	let invalidLink = $state(false);
 	let feedback = $state('');
@@ -40,12 +42,31 @@
 	const canRecord = $derived(personalWorkspaces.some(w => w.can_record_work));
 	let operation = $state<{ target: TimesheetWorklogTarget; restoreFocus: () => void } | null>(null);
 	let detailRefresh = $state(0);
+	let detailSuspended = $state(false);
+	let updatesConnected = $state(true);
+	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+	let authorizedScope: { mode: TimesheetMode; ids: string[] } | null = null;
 	let heading: HTMLHeadingElement;
 	let returnTabFocus = $state<HTMLElement | null>(null);
 	let detail = $state<{ group: TimesheetGroup; date: string; query: TimesheetQuery; returnFocus: HTMLElement | null } | null>(null);
 	let normalized: { href: string; userId: string | undefined; generation: number } | null = null;
 	let pendingFeedback: { href: string; message: string } | null = null;
 	let context = '';
+	const subscriptions = createTimesheetSubscriptions(invalidateRemote, connected => updatesConnected = connected);
+
+	function invalidateRemote() {
+		if (!authState.user || invalidLink) return;
+		generation++;
+		grid = null; loading = true; refreshingRemote = true; detailSuspended = true;
+		clearTimeout(refreshTimer);
+		refreshTimer = setTimeout(() => { void load($state.snapshot(view), true, true); }, 100);
+	}
+
+	function subscribe(request: TimesheetLocation, workspaces = options?.workspaces ?? [], ref = reference) {
+		const selected = workspaces.filter(w => (request.mode === 'personal' || w.can_administer)
+			&& (request.filters.workspaces === null || request.filters.workspaces.includes(w.id)));
+		subscriptions.update(authState.user?.id, [...selected.map(w => w.slug), ...(ref ? [ref.slug] : [])]);
+	}
 
 	function readQuery(value = view): TimesheetQuery {
 		return { ...value.period!, mode: value.mode, owners: value.owners, filters: value.filters, reference_workspace_id: value.referenceId, page: value.groupPage };
@@ -57,7 +78,9 @@
 		const active = document.activeElement as HTMLElement | null;
 		if (active?.getAttribute('role') === 'tab') returnTabFocus = active;
 		generation++;
+		clearTimeout(refreshTimer);
 		loading = true; grid = null; detail = null;
+		subscribe(value);
 		pendingFeedback = { href: url.href, message };
 		void goto(url, { replaceState, noScroll: true, keepFocus: true });
 	}
@@ -86,7 +109,6 @@
 	function worklogSaved(slug: string) {
 		operation = null;
 		feedback = m['timesheet.work_saved']();
-		detailRefresh++;
 		emitAppRefresh(['issues'], slug);
 		void load($state.snapshot(view), true, true);
 	}
@@ -126,17 +148,24 @@
 	});
 
 	async function load(request = $state.snapshot(view), recover = true, preserveDetail = false) {
+		clearTimeout(refreshTimer);
 		const id = ++generation;
 		const userId = authState.user?.id;
 		const url = new URL(page.url);
 		const current = () => id === generation && userId === authState.user?.id;
-		const previousScope = grid?.mode === request.mode ? grid.scope.workspace_ids : [];
+		const previousScope = authorizedScope?.mode === request.mode ? authorizedScope.ids : [];
 		view = request;
 		loading = true; failed = false; invalidLink = false; grid = null;
+		refreshingRemote = preserveDetail;
+		detailSuspended = true;
 		if (!preserveDetail) detail = null;
 		try {
 			const result = await getTimesheetOptions(request.mode, request.filters);
 			if (!current()) return;
+			if (previousScope.some(workspaceId => !result.workspaces.some(w => w.id === workspaceId))) {
+				feedback = m['timesheet.access_changed']();
+				if (detail?.group.workspace_id && !result.scope.workspace_ids.includes(detail.group.workspace_id)) detail = null;
+			}
 			options = result;
 			const personal = request.mode === 'personal' ? result : await getTimesheetOptions('personal', allTimesheetFilters());
 			if (!current()) return;
@@ -148,6 +177,8 @@
 				feedback = [feedback, m['timesheet.reference_changed']()].filter(Boolean).join(' ');
 			}
 			reference = nextReference ?? null;
+			authorizedScope = { mode: request.mode, ids: result.scope.workspace_ids };
+			subscribe(request, result.workspaces, reference);
 			const resolved = { ...request, referenceId: nextReference?.id ?? '', period: request.period ?? (nextReference ? periodForDate(request.periodKind, nextReference.today) : null) };
 			if (nextReference) {
 				const response = await getTimesheet(readQuery(resolved));
@@ -161,6 +192,8 @@
 				reference = response.reference;
 			}
 			view = resolved;
+			detailSuspended = false;
+			detailRefresh++;
 			const canonical = writeTimesheetLocation(url, resolved);
 			if (canonical.href !== page.url.href) {
 				normalized = { href: canonical.href, userId, generation: id };
@@ -181,7 +214,9 @@
 					// A lost administrative mode must not turn All into all personal workspaces.
 					const requestedFilters = nextMode !== request.mode && request.filters.workspaces === null
 						? { ...request.filters, workspaces: previousScope } : request.filters;
-					await load({ ...request, mode: nextMode, owners: nextMode === 'personal' ? null : request.owners, filters: reconcileFilters(requestedFilters, admitted) }, false);
+					const reconciled = { ...request, mode: nextMode, owners: nextMode === 'personal' ? null : request.owners, filters: reconcileFilters(requestedFilters, admitted) };
+					subscribe(reconciled, admitted.workspaces, null);
+					await load(reconciled, false);
 				} catch { if (current()) failed = true; }
 			} else {
 				invalidLink = status === 400;
@@ -191,7 +226,7 @@
 	}
 
 	function selectMode(value: string) {
-		if (loading || !options || !options.available_modes.includes(value as TimesheetMode) || value === mode) return;
+		if ((loading && !refreshingRemote) || !options || !options.available_modes.includes(value as TimesheetMode) || value === mode) return;
 		navigate({ ...view, mode: value as TimesheetMode, owners: value === 'personal' ? null : owners, filters: changeMode(filters, value as TimesheetMode, options), groupPage: 1 }, m['timesheet.scope_changed']());
 	}
 
@@ -224,8 +259,10 @@
 				return;
 			}
 			generation++;
+			clearTimeout(refreshTimer);
 			grid = null; detail = null;
 			if (context !== `${userId}/${slug}`) {
+				subscriptions.close(); authorizedScope = null;
 				options = null; reference = null;
 				personalWorkspaces = []; operation = null;
 				context = `${userId}/${slug}`;
@@ -243,7 +280,7 @@
 			}
 		});
 	});
-	onDestroy(() => { generation++; });
+	onDestroy(() => { generation++; clearTimeout(refreshTimer); subscriptions.close(); });
 </script>
 
 <div class="flex h-full min-w-0 flex-col bg-[var(--color-bg)]">
@@ -252,7 +289,7 @@
 		<CalendarClock size={16} class="text-[var(--color-text-secondary)]" />
 		<h1 bind:this={heading} tabindex="-1" class="text-sm font-medium text-[var(--color-text-primary)]">{m['timesheet.title']()}</h1>
 	</header>
-	<Tabs.Root value={options ? mode : 'personal'} onValueChange={selectMode} activationMode="manual" disabled={loading || !options || invalidLink} class="min-h-0 min-w-0 flex-1 gap-0">
+	<Tabs.Root value={options ? mode : 'personal'} onValueChange={selectMode} activationMode="manual" disabled={(loading && !refreshingRemote) || !options || invalidLink} class="min-h-0 min-w-0 flex-1 gap-0">
 		<div class="shrink-0 border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)]/35">
 			<div class="mx-auto w-full max-w-[1440px] space-y-3 px-4 py-3 sm:px-6">
 				<div class="max-w-full overflow-x-auto">
@@ -282,6 +319,7 @@
 							<Button variant="outline" size="sm" disabled={loading || invalidLink} onclick={() => load()}><RefreshCw size={14} />{m['timesheet.refresh']()}</Button>
 						</div>
 					</div>
+					{#if !updatesConnected}<p role="status" class="text-sm text-[var(--color-text-secondary)]">{m['timesheet.updates_reconnecting']()}</p>{/if}
 					{#if period && reference}
 						<TimesheetPeriodPicker value={period} {reference} disabled={loading} onchange={selectPeriod} />
 					{/if}
@@ -320,7 +358,7 @@
 </div>
 
 {#if detail}
-	<TimesheetWorklogDetail {...detail} refresh={detailRefresh} onaction={startWorklog} fallbackFocus={() => heading?.focus()} onclose={() => detail = null} onaccesschanged={accessChanged} />
+	<TimesheetWorklogDetail {...detail} refresh={detailRefresh} suspended={detailSuspended} onaction={startWorklog} fallbackFocus={() => heading?.focus()} onclose={() => detail = null} onaccesschanged={accessChanged} />
 {/if}
 
 {#if operation && authState.user}

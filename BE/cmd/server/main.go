@@ -90,7 +90,7 @@ func main() {
 	labelSvc := service.NewLabelService(labelRepo)
 	effortSvc := service.NewEffortService(effortRepo, hub)
 	commentSvc := service.NewCommentService(commentRepo, issueRepo, hub, notifSvc)
-	projectSvc := service.NewProjectService(projectRepo)
+	projectSvc := service.NewProjectService(projectRepo, hub)
 	relationSvc := service.NewIssueRelationService(relationRepo, issueRepo)
 	templateSvc := service.NewIssueTemplateService(templateRepo)
 	viewSvc := service.NewViewService(viewRepo, hub)

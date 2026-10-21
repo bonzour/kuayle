@@ -4,19 +4,31 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
-	"github.com/google/uuid"
 )
 
 type ProjectService struct {
 	projectRepo repository.ProjectRepo
+	hub         *realtime.Hub
 }
 
-func NewProjectService(projectRepo repository.ProjectRepo) *ProjectService {
-	return &ProjectService{projectRepo: projectRepo}
+func NewProjectService(projectRepo repository.ProjectRepo, hubs ...*realtime.Hub) *ProjectService {
+	s := &ProjectService{projectRepo: projectRepo}
+	if len(hubs) > 0 {
+		s.hub = hubs[0]
+	}
+	return s
+}
+
+func (s *ProjectService) refresh(workspaceID uuid.UUID) {
+	if s.hub != nil {
+		s.hub.Broadcast(workspaceID, realtime.Event{Type: "app.refresh", Payload: map[string]any{"resources": []string{"projects", "issues"}}})
+	}
 }
 
 func (s *ProjectService) Create(ctx context.Context, workspaceID uuid.UUID, req dto.CreateProjectRequest) (*domain.Project, error) {
@@ -44,6 +56,7 @@ func (s *ProjectService) Create(ctx context.Context, workspaceID uuid.UUID, req 
 	if err := s.projectRepo.Create(ctx, project); err != nil {
 		return nil, err
 	}
+	s.refresh(workspaceID)
 	return project, nil
 }
 
@@ -96,6 +109,7 @@ func (s *ProjectService) Update(ctx context.Context, workspaceID, id uuid.UUID, 
 	if err := s.projectRepo.Update(ctx, project); err != nil {
 		return nil, err
 	}
+	s.refresh(workspaceID)
 	return project, nil
 }
 
@@ -107,7 +121,11 @@ func (s *ProjectService) Delete(ctx context.Context, workspaceID, id uuid.UUID) 
 	if project.WorkspaceID != workspaceID {
 		return fmt.Errorf("project not found")
 	}
-	return s.projectRepo.Delete(ctx, id)
+	if err := s.projectRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.refresh(workspaceID)
+	return nil
 }
 
 func (s *ProjectService) GetStats(ctx context.Context, projectID uuid.UUID) (*dto.ProjectProgressResponse, error) {

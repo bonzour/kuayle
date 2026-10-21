@@ -1794,6 +1794,7 @@
 	"timesheet.effective_scope": "Effective scope",
 	"timesheet.read_only": "Read only",
 	"timesheet.recording_allowed": "Recording allowed",
+	"timesheet.updates_reconnecting": "Live updates disconnected. Reconnecting and checking access…",
 	"timesheet.refresh": "Refresh",
 	"timesheet.failed_load": "Unable to load Timesheet.",
 	"timesheet.no_workspaces": "No workspaces are available.",

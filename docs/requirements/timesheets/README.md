@@ -12,12 +12,14 @@ dettaglio, oltre agli aggregati amministrativi EP-03 con filtro persone e
 attribuzioni storiche. EP-04 aggiunge tab coerenti con Insights, URL e cronologia
 con rivalidazione degli accessi e navigazione accessibile. EP-05 aggiunge ricerca
 issue e registrazione/correzione/eliminazione dalla vista usando Efforts e le
-capacità del workspace destinatario. Restano a EP-06 aggiornamenti remoti
-multi-workspace e accettazione integrata. Vedere [contratti API](contracts.md),
+capacità del workspace destinatario. EP-06 completa aggiornamenti remoti
+multi-workspace, revoche/reconnect e accettazione integrata dei 28 AC, incluse
+prove browser reali e misure PostgreSQL su 100.000 worklog. Vedere [contratti API](contracts.md),
 [verifica EP-01](acceptance-ep01.md), [verifica EP-02](acceptance-ep02.md),
 [verifica EP-03](acceptance-ep03.md), [verifica EP-04](acceptance-ep04.md) e
-[verifica EP-05](acceptance-ep05.md);
-questa nota non dichiara completata TS-01.
+[verifica EP-05](acceptance-ep05.md) e [verifica EP-06](acceptance-ep06.md).
+TS-01 è implementata e verificata sul codice locale; risultati e limiti effettivi
+sono riportati nella verifica EP-06, senza certificare deployment o SLA.
 
 Baseline esaminata: branch `feature/efforts`, commit
 `9007650e384e40d0ee86b42b61a267d1b1c055eb`, incluse le modifiche locali

@@ -1,6 +1,6 @@
 # Timesheets — Epic e Stories
 
-Data: **2026-10-21**. Stato: **fondazioni EP-01, personale EP-02, aggregati EP-03, UI/navigazione EP-04 e operazioni EP-05 implementati; EP-06 pendente**.
+Data: **2026-10-21**. Stato: **EP-01–06 implementate e accettazione integrata TS-AC-01–28 verificata sul codice locale**.
 Fonte: [TS-01 v0.2 — requisiti Timesheets](../requirements/timesheets/README.md).
 Baseline analizzata: `feature/efforts`, commit `9007650`, incluse le modifiche
 locali Efforts descritte nel requisito. Nessun ticket esterno creato.
@@ -411,6 +411,16 @@ registrare lavoro, **per** operare secondo configurazione e ruolo locali.
 
 ### TS-EP-06 — Aggiornamenti e accettazione
 
+**Incremento EP-06 implementato (2026-10-21):** TS-US-16 e TS-US-18 completate.
+Sottoscrizioni autorizzate per workspace con sole invalidazioni, cleanup,
+reconnect e riletture coerenti conservano bozze e periodo durante modifiche e
+revoche. Accettazione integrata dei 28 AC con PostgreSQL/HTTP/PAT, browser
+multi-sessione reale, regressioni UI/Efforts/Insights e misure su 100.000 worklog.
+Vedere [verifica EP-06 e limiti misurati](../requirements/timesheets/acceptance-ep06.md).
+Le note EP-01–05 sopra descrivono i limiti storici dei singoli incrementi:
+l’accettazione integrata conclude anche le loro verifiche condivise. Nessuna
+certificazione di deployment o SLA implicita.
+
 **Valore:** mantenere coerenti dati e permessi di una vista trasversale e
 verificare il risultato completo prima di dichiarare la funzionalità pronta.
 
@@ -542,7 +552,7 @@ verifica finale: le storie riportate devono già soddisfarlo nel proprio ambito.
 6. **Integrazione:** TS-US-16 → TS-US-18. Verificare aggiornamenti da tutti gli
    ambiti, revoche, performance e copertura finale degli AC.
 
-## 6. Decisioni tecniche da chiudere nel refinement
+## 6. Decisioni tecniche del refinement (storico)
 
 - TS-US-17: nomi endpoint/DTO, rappresentazione di «Tutti» e selezione vuota,
   ordinamento/paginazione dei gruppi e snapshot coerente senza successi parziali.
@@ -555,3 +565,9 @@ verifica finale: le storie riportate devono già soddisfarlo nel proprio ambito.
 
 Le decisioni devono rispettare TS-01 v0.2 e sono attività del backlog, non
 richieste di approvazione per la sola predisposizione di questi documenti.
+
+**Decisioni consolidate EP-06:** riuso del socket con `channel=timesheets`, un
+socket per workspace selezionato più il riferimento, payload di sola
+invalidazione, reconnect a tre secondi e accorpamento a 100 ms. Misure su 100.000
+worklog e 10 workspace, senza indici preventivi né SLA; contratti, evidenze e
+piani completi sono collegati nella verifica EP-06.

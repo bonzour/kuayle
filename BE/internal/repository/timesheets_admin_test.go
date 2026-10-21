@@ -27,6 +27,8 @@ func TestTimesheetAdministrativePostgres(t *testing.T) {
 	f.exec(t, `UPDATE issues SET project_id=$1 WHERE id=$2`, project, f.issues[0])
 	f.exec(t, `UPDATE issues SET project_id=$1,team_id=$2 WHERE id=$3`, project, sharedTeam, f.issues[2])
 	f.exec(t, `UPDATE issues SET parent_id=$1 WHERE id=$2`, f.issues[0], f.issues[1])
+	f.exec(t, `INSERT INTO issue_assignees(issue_id,user_id) VALUES($1,$2),($1,$3) ON CONFLICT DO NOTHING`, f.issues[0], f.member, f.guest)
+	f.exec(t, `UPDATE projects SET lead_id=$1 WHERE id=$2`, f.member, project)
 	insert := func(ws, issue, owner uuid.UUID, minutes int) uuid.UUID {
 		id := uuid.New()
 		f.exec(t, `INSERT INTO effort_worklogs(id,workspace_id,issue_id,owner_user_id,created_by_user_id,work_date,duration_minutes) VALUES($1,$2,$3,$4,$5,'2026-01-05',$6)`, id, ws, issue, owner, f.owner, minutes)

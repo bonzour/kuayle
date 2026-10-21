@@ -1794,6 +1794,7 @@
 	"timesheet.effective_scope": "Ambito effettivo",
 	"timesheet.read_only": "Sola lettura",
 	"timesheet.recording_allowed": "Registrazione consentita",
+	"timesheet.updates_reconnecting": "Aggiornamenti in tempo reale disconnessi. Riconnessione e verifica degli accessi…",
 	"timesheet.refresh": "Aggiorna",
 	"timesheet.failed_load": "Impossibile caricare il Timesheet.",
 	"timesheet.no_workspaces": "Nessun workspace disponibile.",

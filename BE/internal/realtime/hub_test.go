@@ -145,3 +145,61 @@ func TestConcurrentBroadcastAndUnregister(t *testing.T) {
 	}
 	workers.Wait()
 }
+
+func TestTimesheetChannelQueuesOnlyCoalescedInvalidations(t *testing.T) {
+	hub := NewHub(func(context.Context, uuid.UUID, uuid.UUID) (bool, bool, error) { return true, false, nil })
+	workspace, user := uuid.New(), uuid.New()
+	client := hub.RegisterTimesheets(nil, workspace, user)
+	defer hub.Unregister(client)
+	for _, kind := range []string{"presence.join", "presence.sync", "cursor.move", "focus.update", "comment.created", "notification.created"} {
+		hub.Broadcast(workspace, Event{Type: kind, Payload: "PRIVATE"})
+	}
+	require.Empty(t, client.send)
+	for _, kind := range []string{"app.refresh", "issue.created", "issue.updated", "issue.deleted", "issue.triaged", "issues.bulk_updated", "issues.bulk_deleted"} {
+		hub.Broadcast(workspace, Event{Type: kind, Payload: map[string]any{"title": "PRIVATE", "minutes": 90}})
+		require.JSONEq(t, string(timesheetRefresh), string(<-client.send))
+	}
+	for i := 0; i < 1000; i++ {
+		hub.BroadcastToUser(workspace, user, Event{Type: "app.refresh", Payload: "PRIVATE"})
+	}
+	require.Len(t, client.send, 1)
+	require.JSONEq(t, string(timesheetRefresh), string(<-client.send))
+	hub.BroadcastExcluding(workspace, nil, Event{Type: "issue.updated", Payload: "PRIVATE"})
+	require.JSONEq(t, string(timesheetRefresh), string(<-client.send))
+	data, allowed := hub.delivery(context.Background(), client, []byte(`{"title":"PRIVATE"}`))
+	require.True(t, allowed)
+	require.JSONEq(t, string(timesheetRefresh), string(data))
+}
+
+func TestTimesheetChannelDoesNotRelayIncomingPresence(t *testing.T) {
+	hub := NewHub(func(context.Context, uuid.UUID, uuid.UUID) (bool, bool, error) { return true, false, nil })
+	workspace := uuid.New()
+	registered := make(chan *Client, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		client := hub.RegisterTimesheets(conn, workspace, uuid.New())
+		defer hub.Unregister(client)
+		registered <- client
+		go hub.WritePump(r.Context(), client)
+		hub.ReadPump(r.Context(), client)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	socket, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	require.NoError(t, err)
+	defer socket.CloseNow()
+	client := <-registered
+	for _, kind := range []string{"presence.join", "cursor.move", "focus.update"} {
+		body, _ := json.Marshal(map[string]any{"type": kind, "payload": map[string]string{"issue_id": "secret"}})
+		require.NoError(t, socket.Write(ctx, websocket.MessageText, body))
+	}
+	// Ping is handled only once the preceding frames have been consumed.
+	readCtx := socket.CloseRead(ctx)
+	require.NoError(t, socket.Ping(readCtx))
+	require.Empty(t, hub.GetIssueViewers(workspace, "secret", nil))
+	require.Empty(t, client.send)
+}

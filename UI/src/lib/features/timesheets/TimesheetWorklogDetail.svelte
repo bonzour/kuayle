@@ -13,10 +13,10 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale } from '$lib/paraglide/runtime.js';
 
-	let { query, group, date, returnFocus, fallbackFocus, refresh = 0, onaction, onclose, onaccesschanged }: {
+	let { query, group, date, returnFocus, fallbackFocus, refresh = 0, suspended = false, onaction, onclose, onaccesschanged }: {
 		query: TimesheetQuery; group: TimesheetGroup; date: string; returnFocus: HTMLElement | null;
 		fallbackFocus: () => void; onclose: () => void; onaccesschanged: () => void;
-		refresh?: number; onaction: (target: TimesheetWorklogTarget) => void;
+		refresh?: number; suspended?: boolean; onaction: (target: TimesheetWorklogTarget) => void;
 	} = $props();
 	let result = $state<TimesheetWorklogs | null>(null);
 	let loading = $state(true);
@@ -42,7 +42,12 @@
 			else failed = true;
 		} finally { if (current()) loading = false; }
 	}
-	$effect(() => { void query; void group; void date; void page; void refresh; untrack(() => { void load(); }); });
+	$effect.pre(() => {
+		void query; void group; void date; void page; void refresh;
+		const paused = suspended;
+		untrack(() => { generation++; result = null; loading = true; if (!paused) void load(); });
+		return () => { generation++; };
+	});
 	onDestroy(() => { generation++; });
 </script>
 

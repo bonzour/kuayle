@@ -307,3 +307,41 @@ issue usano il workspace della riga; il ritorno browser riapre l'URL filtrato.
 La chiusura del dettaglio riporta il focus alla cella o, se rimossa, al titolo
 della pagina. La griglia mensile mantiene lo scorrimento orizzontale al proprio
 interno; barra dei tab e dettaglio sono utilizzabili sui viewport stretti.
+
+## Aggiornamenti remoti dell'incremento EP-06
+
+`GET /api/workspaces/:slug/ws?channel=timesheets` riusa il WebSocket esistente,
+con sessione JWT e membership corrente nel workspace richiesto. I PAT restano
+esclusi dal socket e leggono attraverso le API REST autorizzate sopra descritte.
+Un valore `channel` diverso da `timesheets` o dal valore vuoto viene rifiutato
+con HTTP 400. Senza canale il protocollo applicativo preesistente resta valido.
+
+Il canale Timesheet è solo in uscita e produce esclusivamente:
+
+```json
+{"type":"app.refresh","payload":{"resources":["timesheets"]}}
+```
+
+Non trasporta ore, identificativi di persone/issue, titoli, descrizioni,
+presenze o cursori. Le mutazioni issue, Efforts, team, progetti e accessi
+invalidano la lettura; le invalidazioni vengono accorpate prima dell'accodamento.
+I messaggi applicativi in ingresso non sono inoltrati. La membership viene
+ricontrollata prima della consegna e ogni cinque secondi sui socket inattivi;
+revoca o errore di verifica chiudono la connessione con codice 1008.
+
+La pagina mantiene un socket per workspace nell'ambito effettivo più il
+riferimento temporale, eliminando duplicati. Queste sottoscrizioni non
+estendono l'ambito delle query. Cambi selezione, account e navigazione eliminano
+socket e timer precedenti; i workspace ancora pertinenti mantengono il socket.
+Apertura, notifica e chiusura invalidano le risposte precedenti e rileggono
+opzioni e griglia; solo dopo una lettura coerente riparte il dettaglio.
+Gli eventi vicini vengono accorpati entro 100 ms; il reconnect usa tre secondi.
+Lo stato di disconnessione è visibile e tradotto. Anche una chiusura anomala
+richiede la rivalidazione, perché un proxy può nascondere il codice di revoca.
+
+Il refresh conserva URL, periodo e bozze aperte. Le revoche riallineano la
+selezione con feedback, senza trasformare una lista vuota in Tutti; un downgrade
+non allarga un precedente report amministrativo ai workspace personali estranei.
+Le risposte superate non pubblicano dati né riscrivono l'URL. Il dettaglio
+sospeso non presenta totali vecchi e gli errori non producono risultati parziali.
+Ogni salvataggio mantiene i controlli autorevoli e i conflitti Efforts esistenti.

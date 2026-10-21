@@ -23,6 +23,7 @@ type Client struct {
 	userID       uuid.UUID
 	send         chan []byte
 	viewingIssue string // issue ID currently being viewed (empty if none)
+	timesheets   bool
 }
 
 // Incoming message types from clients
@@ -68,6 +69,24 @@ func (h *Hub) policy(ctx context.Context, client *Client) (bool, bool) {
 }
 
 var privateRefresh = []byte(`{"type":"app.refresh","payload":{"resources":["workspace","teams","projects","issues","members","views","notifications","favorites","cycles"],"privacy":true}}`)
+var timesheetRefresh = []byte(`{"type":"app.refresh","payload":{"resources":["timesheets"]}}`)
+
+// Called under the hub lock. Timesheet queues contain no domain payloads,
+// including in public workspaces; a single pending invalidation is sufficient.
+func (client *Client) enqueue(event Event, data []byte) {
+	if client.timesheets {
+		switch event.Type {
+		case "app.refresh", "issue.created", "issue.updated", "issue.deleted", "issue.triaged", "issues.bulk_updated", "issues.bulk_deleted":
+			data = timesheetRefresh
+		default:
+			return
+		}
+	}
+	select {
+	case client.send <- data:
+	default:
+	}
+}
 
 // Read policy at dequeue: authorization when enqueuing is insufficient for
 // messages buffered before removal or a visibility transition.
@@ -76,6 +95,9 @@ func (h *Hub) delivery(ctx context.Context, client *Client, msg []byte) ([]byte,
 	if !member {
 		return nil, false
 	}
+	if client.timesheets {
+		return timesheetRefresh, true
+	}
 	if private {
 		return privateRefresh, true
 	}
@@ -83,11 +105,24 @@ func (h *Hub) delivery(ctx context.Context, client *Client, msg []byte) ([]byte,
 }
 
 func (h *Hub) Register(conn *websocket.Conn, workspaceID, userID uuid.UUID) *Client {
+	return h.register(conn, workspaceID, userID, false)
+}
+
+func (h *Hub) RegisterTimesheets(conn *websocket.Conn, workspaceID, userID uuid.UUID) *Client {
+	return h.register(conn, workspaceID, userID, true)
+}
+
+func (h *Hub) register(conn *websocket.Conn, workspaceID, userID uuid.UUID, timesheets bool) *Client {
+	capacity := 256
+	if timesheets {
+		capacity = 1
+	}
 	client := &Client{
 		conn:        conn,
 		workspaceID: workspaceID,
 		userID:      userID,
-		send:        make(chan []byte, 256),
+		send:        make(chan []byte, capacity),
+		timesheets:  timesheets,
 	}
 
 	h.mu.Lock()
@@ -126,11 +161,7 @@ func (h *Hub) Broadcast(workspaceID uuid.UUID, event Event) {
 	clients := h.clients[workspaceID]
 
 	for client := range clients {
-		select {
-		case client.send <- data:
-		default:
-			// Client buffer full, skip
-		}
+		client.enqueue(event, data)
 	}
 }
 
@@ -149,10 +180,7 @@ func (h *Hub) BroadcastToUser(workspaceID, userID uuid.UUID, event Event) {
 
 	for client := range clients {
 		if client.userID == userID {
-			select {
-			case client.send <- data:
-			default:
-			}
+			client.enqueue(event, data)
 		}
 	}
 }
@@ -201,7 +229,7 @@ func (h *Hub) ReadPump(ctx context.Context, client *Client) {
 		if !member {
 			return
 		}
-		if private {
+		if private || client.timesheets {
 			// Presence, cursor and arbitrary focus payloads cannot safely be
 			// relayed across team boundaries in this increment.
 			h.mu.Lock()
@@ -320,10 +348,7 @@ func (h *Hub) BroadcastExcluding(workspaceID uuid.UUID, exclude *Client, event E
 		if client == exclude {
 			continue
 		}
-		select {
-		case client.send <- data:
-		default:
-		}
+		client.enqueue(event, data)
 	}
 }
 
@@ -351,8 +376,5 @@ func (h *Hub) sendToClient(client *Client, event Event) {
 	if !h.clients[client.workspaceID][client] {
 		return
 	}
-	select {
-	case client.send <- data:
-	default:
-	}
+	client.enqueue(event, data)
 }

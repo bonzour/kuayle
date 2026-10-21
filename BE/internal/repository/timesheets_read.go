@@ -53,6 +53,48 @@ func (r *TimesheetRepository) read(ctx context.Context, p dto.TimesheetReadParam
 			return nil, domain.ErrEffortForbidden
 		}
 	}
+	query, args := timesheetReadQuery(ctx, p, detail)
+	var adminAllowed, allowed bool
+	var raw []byte
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&adminAllowed, &allowed, &raw); err != nil {
+		return nil, err
+	}
+	if p.Mode != "personal" && !adminAllowed {
+		return nil, domain.ErrEffortForbidden
+	}
+	if !allowed {
+		return nil, sql.ErrNoRows
+	}
+	result, err := decodeTimesheetSnapshot(raw)
+	if err != nil {
+		return nil, err
+	}
+	result.Mode, result.Period, result.From, result.To = p.Mode, p.Period, p.From, p.To
+	result.Scope = result.Options.Scope
+	result.Page, result.PerPage = p.Page, domain.EffortPageSize
+	result.HasMore = int64(p.Page)*50 < result.TotalCount
+	from, _ := time.Parse(time.DateOnly, string(p.From))
+	to, _ := time.Parse(time.DateOnly, string(p.To))
+	for date := from; !date.After(to); date = date.AddDate(0, 0, 1) {
+		result.Days = append(result.Days, domain.EffortDate(date.Format(time.DateOnly)))
+	}
+	result.DailyTotals = completeTimesheetDays(result.Days, result.DailyTotals)
+	return result, nil
+}
+
+func decodeTimesheetSnapshot(raw []byte) (*timesheetSnapshot, error) {
+	var result timesheetSnapshot
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	if result.TotalMinutes > domain.EffortMaxSafeInteger || result.TotalCount > domain.EffortMaxSafeInteger {
+		return nil, fmt.Errorf("Timesheet total exceeds the JSON safe integer range")
+	}
+	return &result, nil
+}
+
+// Shared by production reads and the opt-in EXPLAIN measurements.
+func timesheetReadQuery(ctx context.Context, p dto.TimesheetReadParams, detail bool) (string, []any) {
 	var issue, date any
 	if p.IssueID != uuid.Nil {
 		issue = p.IssueID
@@ -134,35 +176,7 @@ func (r *TimesheetRepository) read(ctx context.Context, p dto.TimesheetReadParam
  'total_minutes',COALESCE((SELECT SUM(duration_minutes)::bigint FROM filtered),0),
  'daily_totals',COALESCE((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.date) FROM daily d),'[]'::jsonb),
  'total_count',` + count + `,'period_has_work',EXISTS(SELECT 1 FROM baseline),` + page + `)`
-	var adminAllowed, allowed bool
-	var raw []byte
-	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&adminAllowed, &allowed, &raw); err != nil {
-		return nil, err
-	}
-	if p.Mode != "personal" && !adminAllowed {
-		return nil, domain.ErrEffortForbidden
-	}
-	if !allowed {
-		return nil, sql.ErrNoRows
-	}
-	var result timesheetSnapshot
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, err
-	}
-	if result.TotalMinutes > domain.EffortMaxSafeInteger || result.TotalCount > domain.EffortMaxSafeInteger {
-		return nil, fmt.Errorf("Timesheet total exceeds the JSON safe integer range")
-	}
-	result.Mode, result.Period, result.From, result.To = p.Mode, p.Period, p.From, p.To
-	result.Scope = result.Options.Scope
-	result.Page, result.PerPage = p.Page, domain.EffortPageSize
-	result.HasMore = int64(p.Page)*50 < result.TotalCount
-	from, _ := time.Parse(time.DateOnly, string(p.From))
-	to, _ := time.Parse(time.DateOnly, string(p.To))
-	for date := from; !date.After(to); date = date.AddDate(0, 0, 1) {
-		result.Days = append(result.Days, domain.EffortDate(date.Format(time.DateOnly)))
-	}
-	result.DailyTotals = completeTimesheetDays(result.Days, result.DailyTotals)
-	return &result, nil
+	return query, args
 }
 
 func completeTimesheetDays(days []domain.EffortDate, totals []dto.TimesheetDayTotal) []dto.TimesheetDayTotal {
