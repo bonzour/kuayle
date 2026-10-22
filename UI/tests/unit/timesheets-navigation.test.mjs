@@ -5,6 +5,8 @@ import test from 'node:test';
 
 const moduleUrl = source => `data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString('base64')}`;
 const periodSource = (await readFile(new URL('../../src/lib/features/timesheets/period.ts', import.meta.url), 'utf8'))
+	.replace("'../issues/effort-duration.ts'", JSON.stringify(new URL('../../src/lib/features/issues/effort-duration.ts', import.meta.url).href))
+	.replace("'../../utils/calendar-date.ts'", JSON.stringify(new URL('../../src/lib/utils/calendar-date.ts', import.meta.url).href))
 	.replace("'@internationalized/date'", JSON.stringify(import.meta.resolve('@internationalized/date')));
 const source = (await readFile(new URL('../../src/lib/features/timesheets/navigation.ts', import.meta.url), 'utf8'))
 	.replace("'./period'", JSON.stringify(moduleUrl(periodSource)));

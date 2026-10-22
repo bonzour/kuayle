@@ -1,3 +1,4 @@
+import { dateField, fillDate, chooseForm, worklogAction } from './control-helpers';
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 
 const uid = '00000000-0000-0000-0000-000000000010';
@@ -150,13 +151,44 @@ async function fixture(page: Page, enabledA = false) {
 
 async function openGlobal(page: Page) {
 	await page.getByRole('button', { name: 'Log work', exact: true }).click();
-	await form(page).getByLabel('Workspaces', { exact: true }).selectOption(wid(2));
+	await chooseForm(form(page), 'Workspaces', 'Workspace B (b)');
 	await expect(form(page).getByRole('button', { name: 'B-1 · Work B1 Team', exact: true })).toBeVisible();
 }
 
 async function fill(page: Page, duration = '1h', description = 'Timesheet draft') {
 	await form(page).getByLabel('Duration', { exact: true }).fill(duration);
 	await form(page).getByLabel('Description (optional)', { exact: true }).fill(description);
+}
+
+for (const width of [390, 1440]) {
+	test(`TSUX journey evidence ${width}`, async ({ page }, testInfo) => {
+		await page.setViewportSize({ width, height: 1000 });
+		const state = await fixture(page);
+		const capture = (step: string) => page.screenshot({ path: testInfo.outputPath(`${step}.png`), fullPage: true, animations: 'disabled' });
+		await capture('01-report');
+		const filters = page.getByRole('button', { name: 'Filters', exact: true });
+		if (await filters.isVisible()) await filters.click();
+		await page.locator('[data-slot="select-trigger"]').filter({ hasText: /All/ }).first().click();
+		await capture('02-filters');
+		await page.keyboard.press('Escape');
+		await page.getByRole('button', { name: 'Select period', exact: true }).click();
+		await capture('03-period');
+		await page.keyboard.press('Escape');
+		await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true }).click();
+		await expect(detail(page).getByText('Entry 1', { exact: true })).toBeVisible();
+		await capture('04-detail');
+		await detail(page).getByRole('button', { name: 'Close', exact: true }).last().click();
+		await openGlobal(page);
+		await capture('05-issue-picker');
+		await form(page).getByRole('button', { name: 'B-1 · Work B1 Team', exact: true }).click();
+		await fill(page, '1h 30m');
+		await capture('05-worklog');
+		await form(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+		state.gridFailure = true;
+		await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+		await expect(page.getByText('Unable to load Timesheet.')).toBeVisible();
+		await capture('06-recovery');
+	});
 }
 
 test('global entry finds an unlogged issue beyond page one and retains administrative filters', async ({ page }) => {
@@ -167,12 +199,12 @@ test('global entry finds an unlogged issue beyond page one and retains administr
 	await openGlobal(page);
 	await form(page).getByRole('button', { name: 'Next', exact: true }).click();
 	await form(page).getByRole('button', { name: 'B-2 · Unlogged B2 Team', exact: true }).click();
-	await expect(form(page).getByLabel('From', { exact: true })).toHaveValue('2026-10-21');
+	await expect(dateField(form(page), 'From')).toHaveAttribute('data-value', '2026-10-21');
 	await expect(form(page)).toContainText('Workspace B (b) · B-2 · Pacific/Kiritimati');
 	await fill(page, '1d');
 	await form(page).getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(form(page)).toHaveCount(0);
-	await expect(page.getByRole('status')).toContainText('Work saved');
+	await expect(page.getByRole('status').filter({ hasText: 'Work saved' })).toContainText('Work saved');
 	expect(page.url()).toBe(href);
 	expect(state.writes[0].path).toBe('/api/workspaces/b/issues/B-2/efforts/worklogs');
 	expect(state.writes[0].body.duration_minutes).toBe(480);
@@ -181,8 +213,8 @@ test('global entry finds an unlogged issue beyond page one and retains administr
 test('empty cells prefill the destination and date; retry preserves the period without duplicates', async ({ page }) => {
 	const state = await fixture(page);
 	await page.getByRole('button', { name: 'Log work · B-1 · 2026-10-19', exact: true }).click();
-	await expect(form(page).getByLabel('From', { exact: true })).toHaveValue('2026-10-19');
-	await form(page).getByLabel('To', { exact: true }).fill('2026-10-20');
+	await expect(dateField(form(page), 'From')).toHaveAttribute('data-value', '2026-10-19');
+	await fillDate(form(page), 'To', '2026-10-20');
 	await fill(page, '1h 30m');
 	state.loseResponse = true;
 	await form(page).getByRole('button', { name: 'Save', exact: true }).click();
@@ -192,24 +224,24 @@ test('empty cells prefill the destination and date; retry preserves the period w
 	await expect(form(page)).toHaveCount(0);
 	expect(state.writes[0].body).toEqual(state.writes[1].body);
 	expect(state.logs.filter(l => l.description === 'Timesheet draft')).toHaveLength(2);
-	await expect(page.getByRole('button', { name: 'B-1 · 2026-10-19 · 1h 30m', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'B-1 · 2026-10-19 · 1.50h', exact: true })).toBeVisible();
 });
 
 test('detail edits reread beyond 50 records, update both days, and delete with confirmation', async ({ page }) => {
 	const state = await fixture(page);
-	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true }).click();
+	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true }).click();
 	await detail(page).getByRole('button', { name: 'Next', exact: true }).click();
-	await detail(page).getByRole('button', { name: 'Edit work log', exact: true }).click();
+	await worklogAction(detail(page), 'Edit work log');
 	await expect(form(page).getByLabel('Description (optional)', { exact: true })).toHaveValue('Entry 51');
 	expect(state.reads.some(u => u.pathname.endsWith('/efforts/worklogs') && u.searchParams.get('page') === '2')).toBe(true);
-	await form(page).getByLabel('Work date', { exact: true }).fill('2026-10-19');
+	await fillDate(form(page), 'Work date', '2026-10-19');
 	await fill(page, '2h', 'Corrected');
 	await form(page).getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(form(page)).toHaveCount(0);
 	await expect(detail(page).getByText('Entry 1', { exact: true })).toBeVisible();
 	await detail(page).getByRole('button', { name: 'Close', exact: true }).last().click();
-	await page.getByRole('button', { name: 'B-1 · 2026-10-19 · 2h', exact: true }).click();
-	await detail(page).getByRole('button', { name: 'Delete', exact: true }).click();
+	await page.getByRole('button', { name: 'B-1 · 2026-10-19 · 2.00h', exact: true }).click();
+	await worklogAction(detail(page), 'Delete');
 	const confirmation = page.getByRole('dialog', { name: 'Delete work log?', exact: true });
 	await expect(confirmation).toContainText('Corrected');
 	await confirmation.getByRole('button', { name: 'Delete', exact: true }).click();
@@ -220,7 +252,7 @@ test('detail edits reread beyond 50 records, update both days, and delete with c
 
 test('detail can add work and conflict handling preserves the draft until explicit realignment', async ({ page }) => {
 	const state = await fixture(page);
-	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true }).click();
+	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true }).click();
 	await detail(page).getByRole('button', { name: 'Log work', exact: true }).click();
 	await fill(page);
 	state.conflict = true;
@@ -250,14 +282,14 @@ for (const rejection of ['disabled', 'guest', 'revoked'] as const) {
 test('delegation uses destination candidates and explains fallback for a removed person', async ({ page }) => {
 	const state = await fixture(page, true);
 	await page.getByRole('tab', { name: 'By person', exact: true }).click();
-	await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1m', exact: true }).click();
+	await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 0.02h', exact: true }).click();
 	await detail(page).getByRole('button', { name: 'Log work', exact: true }).click();
-	await expect(form(page).getByLabel('Work owner', { exact: true })).toHaveValue(other);
+	await expect(form(page).getByLabel('Work owner', { exact: true })).toContainText('Other Member');
 	await form(page).getByRole('button', { name: 'Cancel', exact: true }).click();
 	state.delegates = [uid];
 	await detail(page).getByRole('button', { name: 'Log work', exact: true }).click();
 	await expect(form(page)).toContainText('The owner is set to you');
-	await expect(form(page).getByLabel('Work owner', { exact: true })).toHaveValue(uid);
+	await expect(form(page).getByLabel('Work owner', { exact: true })).toContainText('Test User');
 });
 
 test('search has retry and discards late responses after workspace changes', async ({ page }) => {
@@ -275,7 +307,7 @@ test('search has retry and discards late responses after workspace changes', asy
 	state.delaySuggestions = { ready, wait: new Promise<void>(resolve => release = resolve) };
 	await form(page).getByRole('searchbox', { name: 'Search issues', exact: true }).fill('B-1');
 	await entered;
-	await form(page).getByLabel('Workspaces', { exact: true }).selectOption(wid(1));
+	await chooseForm(form(page), 'Workspaces', 'Workspace A (a)');
 	await expect(form(page).getByRole('button', { name: 'A-1 · Work A1 Team', exact: true })).toBeVisible();
 	const late = page.waitForResponse(response => {
 		const url = new URL(response.url());
@@ -291,12 +323,12 @@ test('search has retry and discards late responses after workspace changes', asy
 test('destination today validates future dates and readonly capabilities remain local', async ({ page }) => {
 	const state = await fixture(page);
 	await page.getByRole('button', { name: 'Log work · B-1 · 2026-10-19', exact: true }).click();
-	await expect(form(page).getByLabel('From', { exact: true })).toHaveAttribute('max', '2026-10-21');
-	await form(page).getByLabel('From', { exact: true }).fill('2026-10-22');
-	await form(page).getByLabel('To', { exact: true }).fill('2026-10-22');
+	await expect(dateField(form(page), 'From').locator('[data-segment=day]')).toHaveAttribute('aria-valuemax', '31');
+	await fillDate(form(page), 'From', '2026-10-22');
+	await fillDate(form(page), 'To', '2026-10-22');
 	await fill(page);
 	await form(page).getByRole('button', { name: 'Save', exact: true }).click();
-	await expect(form(page).getByLabel('From', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+	await expect(form(page).getByRole('group', { name: 'From', exact: true })).toHaveAttribute('aria-invalid', 'true');
 	expect(state.writes).toHaveLength(0);
 	await form(page).getByRole('button', { name: 'Cancel', exact: true }).click();
 	state.roleB = 'guest';
@@ -304,7 +336,7 @@ test('destination today validates future dates and readonly capabilities remain 
 	await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
 	await expect(page.getByRole('button', { name: 'Log work', exact: true })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Log work · B-1 · 2026-10-19', exact: true })).toHaveCount(0);
-	await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true })).toBeVisible();
 });
 
 test('mobile entry supports keyboard and restores focus after cancellation', async ({ page }, testInfo) => {
@@ -313,7 +345,7 @@ test('mobile entry supports keyboard and restores focus after cancellation', asy
 	const origin = page.getByRole('button', { name: 'Log work · B-1 · 2026-10-19', exact: true });
 	await origin.focus();
 	await page.keyboard.press('Enter');
-	await expect(form(page).getByLabel('From', { exact: true })).toHaveValue('2026-10-19');
+	await expect(dateField(form(page), 'From')).toHaveAttribute('data-value', '2026-10-19');
 	await fill(page);
 	await form(page).screenshot({ path: testInfo.outputPath('ep05-mobile-worklog.png') });
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -327,7 +359,7 @@ test('revocation discovered while opening a form clears the old grid without clo
 	state.revokeOnSettings = true;
 	await page.getByRole('button', { name: 'Log work · B-1 · 2026-10-19', exact: true }).click();
 	await expect(form(page).getByRole('alert')).toBeVisible();
-	await expect(form(page).getByLabel('From', { exact: true })).toHaveValue('2026-10-19');
+	await expect(dateField(form(page), 'From')).toHaveAttribute('data-value', '2026-10-19');
 	await expect(form(page).getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
 	await expect(page.getByRole('button', { name: 'Refresh', exact: true, includeHidden: true })).toBeEnabled();
 	await expect(page.locator('button[aria-label="Log work · B-1 · 2026-10-19"]')).toHaveCount(0);
@@ -342,18 +374,18 @@ const remoteRefresh = (state: Awaited<ReturnType<typeof fixture>>, slug = 'b') =
 test('remote B updates grid and open detail from A without replacing a worklog draft', async ({ page }) => {
  const state = await fixture(page);
  await expect.poll(() => state.sockets.get('b')?.length).toBe(1);
- await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true }).click();
+ await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true }).click();
  await expect(detail(page)).toContainText('51 registrations');
  state.logs[1].duration_minutes = 61;
  remoteRefresh(state);
- await expect(detail(page)).toContainText('1h 51m');
+ await expect(detail(page).getByRole('status')).toContainText('0.23d');
  await detail(page).getByRole('button', { name: 'Log work', exact: true }).click();
  await fill(page, '2h', 'Draft preserved during remote refresh');
  state.logs[1].duration_minutes = 121;
  remoteRefresh(state);
  await expect(form(page).getByLabel('Description (optional)', { exact: true })).toHaveValue('Draft preserved during remote refresh');
  await expect(form(page).getByLabel('Duration', { exact: true })).toHaveValue('2h');
- await expect(page.locator('button[aria-label="B-1 · 2026-10-20 · 2h 51m"]')).toHaveCount(1);
+ await expect(page.locator('button[aria-label="B-1 · 2026-10-20 · 2.85h"]')).toHaveCount(1);
  expect(state.sockets.get('b')).toHaveLength(1);
 });
 
@@ -364,7 +396,7 @@ test('reconnect reloads B and selecting only A closes B without accepting obsole
  await state.sockets.get('b')![0].close({ code: 1011, reason: 'network lost' });
  await expect(page.getByText('Live updates disconnected. Reconnecting and checking access…')).toBeVisible();
  await expect.poll(() => state.sockets.get('b')?.length).toBe(2);
- await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 1h 51m', exact: true })).toBeVisible();
+ await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 1.85h', exact: true })).toBeVisible();
  const currentB = state.sockets.get('b')!.at(-1)!;
  let closed = false; currentB.onClose(() => closed = true);
  await page.getByRole('tab', { name: 'By person', exact: true }).click();
@@ -381,7 +413,7 @@ test('remote revocation removes B while retaining an open draft and the selected
  await fill(page, '1h', 'Draft on revoked workspace');
  const dates = new URL(page.url()).searchParams.get('from');
  state.allowedB = false; remoteRefresh(state);
- await expect(page.locator('button[aria-label="B-1 · 2026-10-20 · 51m"]')).toHaveCount(0);
+ await expect(page.locator('button[aria-label="B-1 · 2026-10-20 · 0.85h"]')).toHaveCount(0);
  await expect(form(page).getByLabel('Description (optional)', { exact: true })).toHaveValue('Draft on revoked workspace');
  expect(new URL(page.url()).searchParams.get('from')).toBe(dates);
  await form(page).getByRole('button', { name: 'Save', exact: true }).click();
@@ -396,9 +428,9 @@ test('a remote invalidation supersedes an in-flight grid; failed rereads show no
  state.delayGrid = { ready: started, wait: new Promise<void>(resolve => release = resolve) };
  await page.getByRole('button', { name: 'Refresh', exact: true }).click(); await ready;
  state.logs[1].duration_minutes = 61; remoteRefresh(state);
- await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 1h 51m', exact: true })).toBeVisible();
+ await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 1.85h', exact: true })).toBeVisible();
  release();
- await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true })).toHaveCount(0);
+ await expect(page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true })).toHaveCount(0);
  state.gridFailure = true; remoteRefresh(state);
  await expect(page.getByText('Unable to load Timesheet.')).toBeVisible();
  await expect(page.getByRole('table')).toHaveCount(0);
@@ -415,4 +447,32 @@ test('remote refresh coalesces notifications and retains keyboard focus on the m
  await expect(tab).toBeFocused();
  await page.keyboard.press('Space');
  await expect(tab).toHaveAttribute('aria-selected', 'true');
+});
+
+test('TSUX remote updates retain collapse and horizontal scroll without rendering stale totals', async ({ page }) => {
+	const state = await fixture(page);
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.getByRole('button', { name: 'Month', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+	const region = page.getByRole('region', { name: 'Timesheet grid', exact: true });
+	const toggle = region.getByRole('button', { name: 'Workspace B', exact: true });
+	await toggle.click();
+	await region.evaluate(element => element.scrollLeft = 300);
+	const left = await region.evaluate(element => element.scrollLeft);
+	let release!: () => void;
+	let started!: () => void;
+	const ready = new Promise<void>(resolve => started = resolve);
+	state.delayGrid = { ready: started, wait: new Promise<void>(resolve => release = resolve) };
+	remoteRefresh(state);
+	await ready;
+	await expect(page.getByRole('table')).toHaveCount(0);
+	await expect(page.getByText('Filtered period total', { exact: false })).toHaveCount(0);
+	release();
+	await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+	await expect.poll(() => region.evaluate(element => element.scrollLeft)).toBe(left);
+	await expect(page.getByRole('link', { name: 'B-1 Work B1', exact: true })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Week', exact: true }).click();
+	await page.getByRole('button', { name: 'Current period', exact: true }).click();
+	await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+	await expect.poll(() => region.evaluate(element => element.scrollLeft)).toBe(0);
 });

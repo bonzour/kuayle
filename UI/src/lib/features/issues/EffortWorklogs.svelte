@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
-	import { ChevronRight, Clock3, Pencil, Plus, Trash2 } from 'lucide-svelte';
+	import { ChevronRight, Clock3, Plus } from 'lucide-svelte';
 	import { listEffortWorklogs } from '$lib/api/efforts';
 	import { emitAppRefresh } from '$lib/api/refresh';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
@@ -11,6 +11,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import EffortHistoryEntry from './EffortHistoryEntry.svelte';
 	import { effortHistoryEntries } from './effort-history';
+	import WorklogActions from './WorklogActions.svelte';
 	import EffortWorklogDialog from './EffortWorklogDialog.svelte';
 
 	let { issue, slug, history = [] }: { issue: Issue; slug: string; history?: IssueHistory[] } = $props();
@@ -157,10 +158,7 @@
 					<EffortHistoryEntry event={entry.effort!}>
 						{#snippet actions()}
 							{#if worklog && canWrite && (admin || worklog.owner_user_id === authState.user?.id)}
-								<button type="button" aria-label={m['efforts.worklogs.edit']()} title={m['efforts.worklogs.edit']()} onclick={() => choose('update', worklog.id)}
-									class="rounded p-1 hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"><Pencil size={12} /></button>
-								<button type="button" aria-label={m['common.delete']()} title={m['common.delete']()} onclick={() => choose('delete', worklog.id)}
-									class="rounded p-1 hover:bg-[var(--color-bg-hover)] hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"><Trash2 size={12} /></button>
+								<WorklogActions onedit={() => choose('update', worklog.id)} ondelete={() => choose('delete', worklog.id)} />
 							{/if}
 						{/snippet}
 					</EffortHistoryEntry>

@@ -629,7 +629,7 @@
 	{/if}
 
 	<!-- Chart -->
-	<div class="relative min-h-72 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+	<div aria-busy={loading} class="relative min-h-72 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 		<div
 			bind:this={container}
 			class="h-72 w-full {loading || error || !result || (!result.groups?.length && !result.points?.length)

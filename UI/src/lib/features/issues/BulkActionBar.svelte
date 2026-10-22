@@ -18,6 +18,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import DueDatePickerPanel from '$lib/components/shared/DueDatePickerPanel.svelte';
+	import { formatCalendarDate } from '$lib/utils/calendar-date';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -51,6 +52,10 @@
 	const optionButtonClass = 'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-hover)] disabled:opacity-60 data-[selected=true]:bg-[var(--color-bg-hover)] data-[selected=true]:ring-1 data-[selected=true]:ring-[var(--app-border)]';
 
 	let actionsOpen = $state(false);
+	let actionsTrigger = $state<HTMLButtonElement | null>(null);
+	let selectedRow: HTMLElement | null = null;
+	$effect(() => { if (actionsOpen) selectedRow = document.querySelector<HTMLElement>('[role="checkbox"][aria-checked="true"]'); });
+	function restorePickerFocus() { (actionsTrigger?.isConnected ? actionsTrigger : selectedRow)?.focus(); }
 	let actionsVisible = $state(false);
 	let closingActions = false;
 	let activeCommand = $state<BulkCommand | null>(null);
@@ -310,7 +315,7 @@
 	}
 
 	function formatDisplayDate(value: string) {
-		return new Date(`${value}T00:00:00`).toLocaleDateString(getLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
+		return formatCalendarDate(value, getLocale());
 	}
 
 	async function bulkSetAssignees(assigneeIds = selectedAssigneeIds) {
@@ -490,6 +495,7 @@
 		<div class="mx-0.5 h-5 w-px bg-[var(--app-border)] max-sm:hidden"></div>
 
 		<button
+			bind:this={actionsTrigger}
 			onclick={() => (actionsOpen = true)}
 			class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 		>
@@ -708,6 +714,7 @@
 		actionLabel={m['bulkActions.parent_picker.set_parent']()}
 		excludeIds={Array.from(issuesState.selectedIds)}
 		onselect={bulkSetParent}
+		returnFocus={restorePickerFocus}
 	/>
 
 	<IssuePickerDialog
@@ -718,6 +725,7 @@
 		actionLabel={relationPickerType === 'duplicate' ? m['bulkActions.relation_picker.mark_duplicate']() : m['bulkActions.relation_picker.relate']()}
 		excludeIds={Array.from(issuesState.selectedIds)}
 		onselect={bulkAddRelation}
+		returnFocus={restorePickerFocus}
 	/>
 
 	<AlertDialog.Root bind:open={deleteOpen}>

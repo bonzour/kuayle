@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
+	import WorklogActions from '$lib/features/issues/WorklogActions.svelte';
+	import ResultPagination from '$lib/components/shared/ResultPagination.svelte';
 	import { X } from 'lucide-svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
@@ -8,7 +10,7 @@
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { getTimesheetWorklogs } from '$lib/api/timesheets';
 	import type { TimesheetGroup, TimesheetQuery, TimesheetWorklog, TimesheetWorklogs, TimesheetWorklogTarget } from '$lib/types/timesheets';
-	import { formatTimesheetDate, formatTimesheetMinutes } from './period';
+	import { formatTimesheetDate, formatTimesheetHours, formatTimesheetDays } from './period';
 	import { personLabel } from './people';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale } from '$lib/paraglide/runtime.js';
@@ -62,39 +64,31 @@
 			<Dialog.Title>{m['timesheet.worklog_details']()}</Dialog.Title>
 			<Dialog.Description>{group.identifier} · {formatTimesheetDate(date, getLocale(), { year: 'numeric' })}</Dialog.Description>
 		</Dialog.Header>
-		<div class="min-h-0 space-y-4 overflow-y-auto">
-			{#if loading}<LoadingState />
-			{:else if failed}<ErrorState message={m['timesheet.failed_load']()} retryLabel={m['timesheet.retry']()} onretry={load} />
+		<div aria-busy={loading} class="min-h-0 space-y-4 overflow-y-auto">
+			{#if loading}<LoadingState variant="compact" />
+			{:else if failed}<ErrorState variant="compact" message={m['timesheet.failed_load']()} retryLabel={m['timesheet.retry']()} onretry={load} />
 			{:else if result}
-				<p class="text-sm font-medium" role="status">{m['timesheet.total']()}: {formatTimesheetMinutes(result.total_minutes)} · {m['timesheet.registration_count']({ count: result.total_count })}</p>
+				<p class="text-sm font-medium" role="status">{m['timesheet.total']()}: {formatTimesheetDays(result.total_minutes, getLocale())} · {m['timesheet.registration_count']({ count: result.total_count })}</p>
 				{#if result.workspaces.some(w => w.id === group.workspace_id && w.can_record_work && date <= w.today)}
 					<Button size="sm" onclick={() => onaction({ mode: 'create', workspaceId: group.workspace_id!, identifier: group.identifier!, date, ownerId: query.mode === 'personal' ? authState.user?.id : query.owners?.[0] })}>{m['efforts.worklogs.create']()}</Button>
 				{/if}
 				{#if result.data.length === 0}<p class="text-sm text-[var(--color-text-secondary)]">{m['timesheet.no_results']()}</p>{/if}
+				<details class="text-xs text-muted-foreground"><summary class="min-h-8 cursor-pointer">{m['controls.scope_details']()}</summary>{#each result.workspaces as workspace}<p>{workspace.name} ({workspace.slug}) · {workspace.timezone}</p>{/each}<p>{m['timesheet.reference']()}: {result.reference.timezone}</p></details>
 				<ul class="space-y-3">
 					{#each result.data as worklog (worklog.id)}
 						<li class="space-y-2 rounded-lg border border-[var(--app-border)] p-3">
-							<div class="flex flex-wrap justify-between gap-2"><a class="min-w-0 max-w-full rounded font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring" href={`/${worklog.workspace.slug}/issue/${worklog.issue_identifier}`}>{worklog.issue_identifier} · {worklog.issue_title}</a><strong>{formatTimesheetMinutes(worklog.duration_minutes)}</strong></div>
-							<p class="text-xs text-[var(--color-text-secondary)]">{worklog.workspace.name} ({worklog.workspace.slug}) · {worklog.team.name} · {worklog.work_date}</p>
+							<div class="flex flex-wrap justify-between gap-2"><a class="min-w-0 max-w-full rounded font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring" href={`/${worklog.workspace.slug}/issue/${worklog.issue_identifier}`}>{worklog.issue_identifier} · {worklog.issue_title}</a><strong>{formatTimesheetHours(worklog.duration_minutes, getLocale())}</strong></div>
+							<p class="text-xs text-[var(--color-text-secondary)]">{worklog.workspace.name} ({worklog.workspace.slug}) · {worklog.team.name} · {formatTimesheetDate(worklog.work_date, getLocale(), { year: 'numeric' })}</p>
 							<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm"><dt>{m['timesheet.owner']()}</dt><dd>{ownerName(worklog.owner)}</dd><dt>{m['timesheet.operator']()}</dt><dd>{ownerName(worklog.operator)}</dd></dl>
 							{#if worklog.description}<p class="whitespace-pre-wrap break-words text-sm">{worklog.description}</p>{/if}
-							<p class="text-xs text-[var(--color-text-secondary)]">{worklog.workspace.timezone} · {m['timesheet.today']()}: {worklog.workspace.today} · {m['timesheet.reference']()}: {result.reference.timezone}</p>
+
 							{#if worklog.workspace.can_record_work && (worklog.workspace.can_administer || worklog.owner.id === authState.user?.id)}
-								<div class="flex gap-2">
-									<Button variant="outline" size="sm" onclick={() => onaction({ mode: 'update', workspaceId: worklog.workspace.id, identifier: worklog.issue_identifier, worklogId: worklog.id })}>{m['efforts.worklogs.edit']()}</Button>
-									<Button variant="outline" size="sm" onclick={() => onaction({ mode: 'delete', workspaceId: worklog.workspace.id, identifier: worklog.issue_identifier, worklogId: worklog.id })}>{m['common.delete']()}</Button>
-								</div>
+								<WorklogActions onedit={() => onaction({ mode: 'update', workspaceId: worklog.workspace.id, identifier: worklog.issue_identifier, worklogId: worklog.id })} ondelete={() => onaction({ mode: 'delete', workspaceId: worklog.workspace.id, identifier: worklog.issue_identifier, worklogId: worklog.id })} />
 							{/if}
 						</li>
 					{/each}
 				</ul>
-				{#if result.total_count > result.per_page}
-					<div class="flex flex-wrap items-center justify-end gap-2" aria-label={m['timesheet.detail_pages']()}>
-						<span class="text-xs">{m['timesheet.page']({ page: result.page, pages: Math.ceil(result.total_count / result.per_page) })}</span>
-						<Button variant="outline" size="sm" disabled={page <= 1} onclick={() => page--}>{m['timesheet.previous']()}</Button>
-						<Button variant="outline" size="sm" disabled={!result.has_more} onclick={() => page++}>{m['timesheet.next']()}</Button>
-					</div>
-				{/if}
+				<ResultPagination {page} perPage={result.per_page} total={result.total_count} label={m['timesheet.detail_pages']()} onchange={(value) => page = value} />
 			{/if}
 		</div>
 		<Dialog.Footer><Button variant="outline" size="sm" onclick={onclose}>{m['timesheet.close']()}</Button></Dialog.Footer>

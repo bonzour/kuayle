@@ -96,6 +96,7 @@
 	let createIssueTitle = $state('');
 	let createDialogParentIssue = $state<Issue | null>(null);
 	let parentPickerOpen = $state(false);
+	let issueActionsTrigger = $state<HTMLButtonElement | null>(null);
 	let removeParentOpen = $state(false);
 	let relationDialogOpen = $state(false);
 	let relationType = $state<RelationType>('related');
@@ -826,6 +827,7 @@
 					<button
 						type="button"
 						class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+						bind:this={issueActionsTrigger}
 						title={m['issue.issue_actions']()}
 					>
 						<MoreHorizontal size={14} />
@@ -1580,6 +1582,7 @@
 	actionLabel={m['issue.set_parent']()}
 	excludeIds={[issue.id]}
 	onselect={changeParent}
+	returnFocus={() => issueActionsTrigger?.focus()}
 />
 
 <AlertDialog.Root bind:open={removeParentOpen}>

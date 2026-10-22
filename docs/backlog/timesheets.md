@@ -2,6 +2,8 @@
 
 Data: **2026-10-21**. Stato: **EP-01–06 implementate e accettazione integrata TS-AC-01–28 verificata sul codice locale**.
 Fonte: [TS-01 v0.2 — requisiti Timesheets](../requirements/timesheets/README.md).
+Evoluzione proposta: [backlog UX/UI e componenti condivisi](timesheets-ux-ui.md)
+(analisi del 2026-10-21; interventi ancora da implementare).
 Baseline analizzata: `feature/efforts`, commit `9007650`, incluse le modifiche
 locali Efforts descritte nel requisito. Nessun ticket esterno creato.
 

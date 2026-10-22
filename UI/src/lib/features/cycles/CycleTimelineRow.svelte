@@ -120,11 +120,13 @@
 		<!-- 3-dot menu: visible on hover or when open -->
 		<Popover.Root bind:open={menuOpen}>
 			<Popover.Trigger>
-				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+				{#snippet child({ props })}
 				<button
+					{...props}
+					aria-label={`${m['sidebar.actions']()} · ${cycle.name}`}
 					onclick={(e) => {
 						e.stopPropagation();
-						e.preventDefault();
+						menuOpen = !menuOpen;
 					}}
 					class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-100 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] sm:opacity-0 sm:group-hover:opacity-100 {menuOpen
 						? '!opacity-100'
@@ -132,6 +134,7 @@
 				>
 					<MoreHorizontal size={14} />
 				</button>
+				{/snippet}
 			</Popover.Trigger>
 			<Popover.Content class="w-48 p-1" align="end" side="bottom">
 				{#if onedit}

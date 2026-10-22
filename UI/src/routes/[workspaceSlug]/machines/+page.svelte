@@ -94,7 +94,7 @@
 		<div class="flex gap-2">{#if canAdminDevMachines}<Button size="sm" variant="outline" onclick={() => (cleanupConfirm = true)}><Trash2 size={14} />{m['machines.delete_old']()}</Button>{/if}<Button size="sm" onclick={() => (createOpen = true)}><Plus size={14} />{m['machines.new_machine']()}</Button></div>
 	</header>
 
-	<div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+	<div aria-busy={loading} class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
 		{#if loading}
 			<LoadingState />
 		{:else if failed}

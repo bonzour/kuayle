@@ -4,8 +4,10 @@ import { stripTypeScriptTypes } from 'node:module';
 import test from 'node:test';
 
 const source = (await readFile(new URL('../../src/lib/features/timesheets/period.ts', import.meta.url), 'utf8'))
+	.replace("'../issues/effort-duration.ts'", JSON.stringify(new URL('../../src/lib/features/issues/effort-duration.ts', import.meta.url).href))
+	.replace("'../../utils/calendar-date.ts'", JSON.stringify(new URL('../../src/lib/utils/calendar-date.ts', import.meta.url).href))
 	.replace("'@internationalized/date'", JSON.stringify(import.meta.resolve('@internationalized/date')));
-const { periodForDate, movePeriod, formatTimesheetMinutes, formatTimesheetDate } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString('base64')}`);
+const { periodForDate, movePeriod, formatTimesheetMinutes, formatTimesheetHours, formatTimesheetDays, formatTimesheetDate } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString('base64')}`);
 
 test('calendar periods include Monday through Sunday, leap years and the entire month', () => {
 	assert.deepEqual(periodForDate('week', '2026-01-01'), { period: 'week', from: '2025-12-29', to: '2026-01-04' });
@@ -41,6 +43,20 @@ test('browser timezone and DST never shift calendar dates or reference today', (
 
 test('durations stay exact hours and minutes, including totals greater than 24h', () => {
 	for (const [minutes, expected] of [[0,'0m'],[1,'1m'],[60,'1h'],[90,'1h 30m'],[480,'8h'],[1500,'25h'],[2400,'40h']]) assert.equal(formatTimesheetMinutes(minutes), expected);
+});
+
+test('grid hours use two fixed localized decimals, including rounding and whole hours', () => {
+	for (const [minutes, expected] of [[0, '0.00h'], [1, '0.02h'], [5, '0.08h'], [30, '0.50h'], [51, '0.85h'], [60, '1.00h'], [90, '1.50h'], [111, '1.85h'], [480, '8.00h'], [1500, '25.00h']]) {
+		assert.equal(formatTimesheetHours(minutes, 'en'), expected);
+		assert.equal(formatTimesheetHours(minutes, 'it'), expected.replace('.', ','));
+	}
+});
+
+test('totals always use eight-hour days rounded to two fixed localized decimals', () => {
+	for (const [minutes, expected] of [[0, '0.00d'], [1, '0.00d'], [30, '0.06d'], [90, '0.19d'], [240, '0.50d'], [480, '1.00d'], [510, '1.06d'], [1500, '3.13d'], [2400, '5.00d']]) {
+		assert.equal(formatTimesheetDays(minutes, 'en'), expected);
+		assert.equal(formatTimesheetDays(minutes, 'it'), expected.replace('.', ','));
+	}
 });
 
 test('grid and detail serialize the same period/scope and keep explicit empty filters', async () => {

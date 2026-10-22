@@ -557,6 +557,7 @@
 	}
 </script>
 
+<div aria-busy={loading} class="contents">
 {#if loading}
 	<LoadingState />
 {:else if failed || !machine}
@@ -721,3 +722,5 @@
 	<AlertDialog.Root bind:open={deleteConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['machines.delete_title']()}</AlertDialog.Title><AlertDialog.Description>{m['machines.delete_desc']()}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={removeMachine} disabled={actionBusy}>{actionBusy ? m['machines.deleting']() : m['machines.delete_action']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
 	<Dialog.Root bind:open={snapshotOpen}><Dialog.Content class="sm:max-w-md"><Dialog.Header><Dialog.Title>{m['machines.snapshot_title']()}</Dialog.Title><Dialog.Description>{m['machines.snapshot_desc']()}</Dialog.Description></Dialog.Header><label class="space-y-1.5"><Label for="snapshot-name">{m['machines.environment_name']()}</Label><Input id="snapshot-name" bind:value={snapshotName} /></label><Dialog.Footer><Button variant="outline" onclick={() => (snapshotOpen = false)}>{m['common.cancel']()}</Button><Button onclick={saveSnapshot} disabled={snapshotBusy || !snapshotName.trim()}>{snapshotBusy ? m['machines.queuing']() : m['machines.save_snapshot']()}</Button></Dialog.Footer></Dialog.Content></Dialog.Root>
 {/if}
+
+</div>

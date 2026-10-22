@@ -1,4 +1,6 @@
 import { CalendarDate, parseDate } from '@internationalized/date';
+import { MINUTES_PER_EFFORT_DAY } from '../issues/effort-duration.ts';
+import { formatCalendarDate } from '../../utils/calendar-date.ts';
 import type { TimesheetPeriod } from '$lib/types/timesheets';
 
 export function periodForDate(period: TimesheetPeriod['period'], value: string): TimesheetPeriod {
@@ -21,6 +23,14 @@ export function formatTimesheetMinutes(minutes: number): string {
 	return [hours ? `${hours}h` : '', rest || !hours ? `${rest}m` : ''].filter(Boolean).join(' ');
 }
 
+export function formatTimesheetHours(minutes: number, locale: string): string {
+	return `${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minutes / 60)}h`;
+}
+
+export function formatTimesheetDays(minutes: number, locale: string): string {
+	return `${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minutes / MINUTES_PER_EFFORT_DAY)}d`;
+}
+
 export function formatTimesheetDate(value: string, locale: string, options: Intl.DateTimeFormatOptions = {}): string {
-	return parseDate(value).toDate('UTC').toLocaleDateString(locale, { day: 'numeric', month: 'short', ...options, timeZone: 'UTC' });
+	return formatCalendarDate(value, locale, { year: undefined, ...options });
 }

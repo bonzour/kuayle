@@ -2,6 +2,7 @@
 	import { Calendar as CalendarPrimitive } from "bits-ui";
 	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
 	import { buttonVariants, type ButtonVariant } from "$lib/components/ui/button/index.js";
+	import { m } from '$lib/paraglide/messages.js';
 	import { cn } from "$lib/utils.js";
 
 	let {
@@ -28,9 +29,9 @@
 	)}
 	{...restProps}
 >
-	{#if children}
-		{@render children?.()}
-	{:else}
-		{@render Fallback()}
-	{/if}
+	{#snippet child({ props })}
+		<button {...props} aria-label={m['controls.next_month']()}>
+			{#if children}{@render children?.()}{:else}{@render Fallback()}{/if}
+		</button>
+	{/snippet}
 </CalendarPrimitive.NextButton>

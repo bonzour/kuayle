@@ -64,6 +64,7 @@
 	const rowClass = 'flex items-center gap-2';
 
 	let pickerOpen = $state(false);
+	let contextTrigger = $state<HTMLElement | null>(null);
 	let pickerMode = $state<PickerMode>('sub_issue_of');
 	let deleteOpen = $state(false);
 	let duplicateOpen = $state(false);
@@ -195,7 +196,7 @@
 </script>
 
 <ContextMenu.Root>
-	<ContextMenu.Trigger>
+	<ContextMenu.Trigger bind:ref={contextTrigger} tabindex={-1}>
 		{@render children()}
 	</ContextMenu.Trigger>
 	<ContextMenu.Content class="w-60">
@@ -398,6 +399,7 @@
 	actionLabel={pickerActionLabel}
 	excludeIds={[issue.id]}
 	onselect={handlePickedIssue}
+	returnFocus={() => contextTrigger?.focus()}
 />
 
 <AlertDialog.Root bind:open={deleteOpen}>

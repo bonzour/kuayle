@@ -202,7 +202,7 @@ essere restituiti entro lo stesso ambito autorizzato della lettura Timesheet.
 
 | ID | Requisito |
 | --- | --- |
-| TS-017 | Presentare celle e totali in ore/minuti esatti, ad esempio `8h`, `1h 30m`, `40h`, senza arrotondamenti o conversioni implicite in giornate lavorative. L'input mantiene la convenzione Efforts: un numero senza unità indica giorni da 480 minuti; esplicitarlo nel dialogo. Non assumere un obbligo di 8 ore al giorno. |
+| TS-017 | Presentare i dettagli delle issue in ore decimali con due decimali fissi localizzati, ad esempio `8,00h`, `1,50h`, `40,00h`. Totali e subtotali, incluso il totale del dettaglio, sono sempre in giorni da 480 minuti, con due decimali fissi localizzati; i calcoli restano in minuti esatti. L'input mantiene la convenzione Efforts: un numero senza unità indica giorni da 480 minuti; esplicitarlo nel dialogo. Non assumere un obbligo di 8 ore al giorno. |
 | TS-018 | Distinguere caricamento, nessun lavoro nel periodo, nessun risultato con i filtri, errore e accesso revocato. Non presentare un errore come zero ore. Usare etichette tradotte, intestazioni di tabella, navigazione da tastiera, focus visibile e apertura/chiusura del dettaglio accessibile; su schermi stretti consentire scorrimento della griglia e dettaglio leggibile. |
 
 ### Workspace, team e riuso Insights
@@ -358,7 +358,7 @@ senza dedurre SLA dalle misure dei riepiloghi issue già esistenti.
 | TS-AC-11 | PAT senza efforts:read non legge; con lo scope legge entro ruolo corrente e allowlist workspace_slugs. Tutti esclude workspace fuori allowlist; selezionarli esplicitamente fallisce. Un downgrade del proprietario revoca l’accesso amministrativo solo negli ambiti interessati. | Sezione 3, TS-022 |
 | TS-AC-12 | Parent/sub-issue e assegnatari multipli non duplicano minuti. Lo spostamento di progetto riclassifica lo storico come dichiarato, senza cambiare il totale; non viene ereditato il progetto del parent. | TS-004, TS-009–010; sezione 5 |
 | TS-AC-13 | Rimozione membership e account non disponibile non fanno sparire i contributi amministrativi autorizzati; ID distinti non vengono fusi e non sono disponibili per nuova delega. | TS-012–013 |
-| TS-AC-14 | Registra lavoro sceglie esplicitamente workspace e issue anche assente dalla griglia; da cella precompila il workspace corretto. 1 e 1d valgono 480 minuti, 1h 30m vale 90; la griglia mostra ore/minuti esatti. Nessuna scrittura va allo slug sbagliato. | TS-013, TS-017 |
+| TS-AC-14 | Registra lavoro sceglie esplicitamente workspace e issue anche assente dalla griglia; da cella precompila il workspace corretto. 1 e 1d valgono 480 minuti, 1h 30m vale 90; la griglia mostra ore decimali arrotondate a due decimali. Nessuna scrittura va allo slug sbagliato. | TS-013, TS-017 |
 | TS-AC-15 | Registrazione per periodo crea le celle giornaliere attese e rispetta l'opzione weekend. Data futura, durata invalida o superamento di 24h in una data annullano l'intera operazione, anche con contributi nascosti. | TS-003, TS-013; sezione 5 |
 | TS-AC-16 | Modificare data/durata aggiorna entrambi i giorni interessati; eliminare rimuove il contributo ma non lo storico. Titolare immutabile; correzione/delete non ricalcolano il residuo. | TS-014; sezione 5 |
 | TS-AC-17 | Due modifiche concorrenti non si sovrascrivono silenziosamente; un retry dopo risposta persa non duplica ore. Nuovo lavoro mantiene il comportamento Efforts sul residuo. | TS-013–014 |

@@ -1,19 +1,9 @@
 <script lang="ts">
-	let {
-		message = 'Something went wrong',
-		retryLabel = 'Try again',
-		onretry
-	}: { message?: string; retryLabel?: string; onretry?: () => void } = $props();
+	import { Button } from '$lib/components/ui/button';
+	import { m } from '$lib/paraglide/messages.js';
+	let { message, retryLabel, onretry, variant = 'page' }: { message?: string; retryLabel?: string; onretry?: () => void; variant?: 'page' | 'compact' } = $props();
 </script>
-
-<div class="flex h-64 flex-col items-center justify-center gap-3">
-	<p class="text-sm text-[var(--color-error)]">{message}</p>
-	{#if onretry}
-		<button
-			onclick={() => onretry?.()}
-			class="rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-2 focus-visible:outline-ring"
-		>
-			{retryLabel}
-		</button>
-	{/if}
+<div class="flex flex-col items-center justify-center gap-3 {variant === 'page' ? 'min-h-64' : 'min-h-24 py-4'}">
+	<p role="alert" class="text-sm text-destructive">{message ?? m['controls.failed']()}</p>
+	{#if onretry}<Button variant="outline" onclick={onretry}>{retryLabel ?? m['controls.retry']()}</Button>{/if}
 </div>

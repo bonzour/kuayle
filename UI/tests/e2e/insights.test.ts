@@ -228,7 +228,10 @@ test(`shows workspace analytics and opens the explorer in ${theme} theme`, async
 	await expect(page.getByLabel('Group by')).toContainText('Status');
 	await page.getByLabel('Date range').click();
 	await expect(page.getByRole('button', { name: '90 days' })).toBeVisible();
-	await page.keyboard.press('Escape');
+	await page.getByRole('button', { name: '90 days', exact: true }).click();
+	await expect(page.getByLabel('Date range')).toBeFocused();
+	await page.getByRole('button', { name: 'Clear date', exact: true }).click();
+	await expect(page.getByLabel('Date range')).toContainText('Date range');
 	await expect(page.getByText('In progress', { exact: true })).toBeVisible();
 
 	await page.goto('/test/insights?tab=explore&slice=cycle');
@@ -263,6 +266,11 @@ test(`shows workspace analytics and opens the explorer in ${theme} theme`, async
 	await expect(page.getByRole('tab', { name: 'Explore' })).toBeVisible();
 	await expect(page.getByLabel('Measure')).toBeVisible();
 	await page.screenshot({ path: testInfo.outputPath(`output/playwright/ep04-insights-mobile-${theme}.png`), fullPage: true });
+	await page.getByLabel('Date range').click();
+	await expect(page.locator('[data-range-calendar-grid]')).toHaveCount(1);
+	expect(await page.locator('[data-slot="popover-content"]').evaluate(el => el.getBoundingClientRect().right <= innerWidth)).toBe(true);
+	await page.screenshot({ path: testInfo.outputPath(`analytics-range-mobile-${theme}.png`), animations: 'disabled' });
+	await page.keyboard.press('Escape');
 	await expect.poll(() => pageErrors.map((error) => error.message)).toEqual([]);
 });
 }

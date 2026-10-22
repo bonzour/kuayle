@@ -1,3 +1,4 @@
+import { dateField, fillDate, chooseForm, worklogAction } from './control-helpers';
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 
 const userId = '00000000-0000-0000-0000-000000000001';
@@ -29,7 +30,7 @@ function fixture(role = 'member', count = 0) {
 		assignee_id: null,
 		assignees: [],
 		parent_id: null,
-		due_date: null,
+		due_date: null as string | null,
 		sort_order: number,
 		labels: [],
 		created_at: timestamp,
@@ -51,6 +52,10 @@ function fixture(role = 'member', count = 0) {
 	const remaining: Record<string, number> = { 'EP-1': 480, 'EP-2': 480 };
 	const state = {
 		role,
+		issues,
+		cycle: { id: 'cycle-1', team_id: teamId, name: 'October cycle', number: 1, status: 'active', description: null, goals: null, retrospective: null, start_date: '2026-10-21T00:00:00Z', end_date: '2026-10-28T00:00:00Z', created_at: timestamp, updated_at: timestamp },
+		projectDates: { start_date: null, target_date: null } as { start_date: string | null; target_date: string | null },
+		fieldWrites: [] as Record<string, unknown>[],
 		history: {} as Record<string, unknown[]>,
 		hasData: true,
 		hasDescendants: false,
@@ -214,21 +219,35 @@ function fixture(role = 'member', count = 0) {
 					return route.fulfill({ json: receipt });
 				}
 				const issueMatch = path.match(/\/issues\/(EP-[12])$/);
-				if (issueMatch) return route.fulfill({ json: issues.find((issue) => issue.identifier === issueMatch[1]) });
+				if (issueMatch) {
+					const issue = issues.find((issue) => issue.identifier === issueMatch[1])!;
+					if (method === 'PATCH') { const body = route.request().postDataJSON(); state.fieldWrites.push(body); Object.assign(issue, body); }
+					return route.fulfill({ json: issue });
+				}
 				if (path.endsWith('/issues')) return route.fulfill({ json: { data: issues, total_count: 2, page: 1, per_page: 50, has_more: false } });
 				const project = {
 					id: projectId,
 					name: 'Worklog project',
 					team_id: teamId,
 					status: 'planned',
-					start_date: null,
-					target_date: null,
+					...state.projectDates,
 					description: null,
 					created_at: timestamp,
 					updated_at: timestamp
 				};
-				if (path.endsWith(`/projects/${projectId}`)) return route.fulfill({ json: project });
+				if (path.endsWith(`/projects/${projectId}`)) {
+					if (method === 'PATCH') { const body = route.request().postDataJSON(); state.fieldWrites.push(body); Object.assign(state.projectDates, body); Object.assign(project, body); }
+					return route.fulfill({ json: project });
+				}
 				if (path.endsWith('/projects')) return route.fulfill({ json: [project] });
+				if (path.endsWith('/burndown') || path.endsWith('/velocity') || path.endsWith('/templates')) return route.fulfill({ json: [] });
+				if (path.endsWith('/views/view-1')) return route.fulfill({ json: { id: 'view-1', workspace_id: 'test-id', creator_id: userId, name: 'Priority view', description: null, filters: { priority: '1,2' }, is_shared: false, created_at: timestamp, updated_at: timestamp } });
+				if (path.endsWith(`/teams/${teamId}`)) return route.fulfill({ json: { id: teamId, name: 'Engineering', key: 'EP', color: '#6366f1', icon: 'layers' } });
+				if (path.endsWith('/cycles/cycle-1')) {
+					if (method === 'PATCH') { const body = route.request().postDataJSON(); state.fieldWrites.push(body); Object.assign(state.cycle, body); }
+					return route.fulfill({ json: state.cycle });
+				}
+				if (path.endsWith('/cycles')) return route.fulfill({ json: [state.cycle] });
 				if (path.endsWith('/teams'))
 					return route.fulfill({
 						json: [{ id: teamId, name: 'Engineering', key: 'EP', color: '#6366f1', icon: 'layers', created_at: timestamp, updated_at: timestamp }]
@@ -273,7 +292,7 @@ for (const view of ['page', 'panel'] as const) {
 		const { state, attach } = fixture();
 		await attach(page, view);
 		await openCreate(page);
-		await expect(dialog(page).getByLabel('From', { exact: true })).toHaveValue('2026-01-02');
+		await expect(dateField(dialog(page), 'From')).toHaveAttribute('data-value', '2026-01-02');
 		await fill(page);
 		await dialog(page).screenshot({ path: testInfo.outputPath('worklog-dialog.png') });
 		await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
@@ -284,16 +303,16 @@ for (const view of ['page', 'panel'] as const) {
 		await register(page).screenshot({ path: testInfo.outputPath('worklog-created.png') });
 		await expect(page.getByLabel('Time spent', { exact: true })).toHaveText('2h');
 		expect(state.remaining['EP-1']).toBe(360);
-		await rows(page).getByRole('button', { name: 'Edit work log' }).click();
+		await worklogAction(rows(page), 'Edit work log');
 		await expect(dialog(page).getByLabel('Duration', { exact: true })).toBeEnabled();
 		await fill(page, '3h', 'Corrected');
 		await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
 		await expect(rows(page)).toContainText('3h');
 		expect(state.remaining['EP-1']).toBe(360);
-		await rows(page).getByRole('button', { name: 'Delete', exact: true }).click();
+		await worklogAction(rows(page), 'Delete');
 		await dialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
 		await expect(rows(page)).toHaveCount(1);
-		await rows(page).getByRole('button', { name: 'Delete', exact: true }).click();
+		await worklogAction(rows(page), 'Delete');
 		await expect(dialog(page).getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
 		await dialog(page).getByRole('button', { name: 'Delete', exact: true }).click();
 		await expect(rows(page)).toHaveCount(0);
@@ -306,12 +325,12 @@ test('admin delegates work and cannot reassign its owner during correction', asy
 	const { state, attach } = fixture('admin');
 	await attach(page);
 	await openCreate(page);
-	await dialog(page).getByLabel('Work owner', { exact: true }).selectOption(memberId);
+	await chooseForm(dialog(page), 'Work owner', 'Other Member');
 	await fill(page);
 	await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(rows(page)).toContainText('Other Member');
 	await expect(rows(page)).toContainText('Entered by Test User');
-	await rows(page).getByRole('button', { name: 'Edit work log' }).click();
+	await worklogAction(rows(page), 'Edit work log');
 	await expect(dialog(page).getByRole('combobox')).toHaveCount(0);
 	expect(state.logs['EP-1'][0].owner.id).toBe(memberId);
 });
@@ -324,9 +343,7 @@ for (const mode of ['create', 'update', 'delete'] as const) {
 			await openCreate(page);
 			await fill(page, '60m', 'Retry me');
 		} else {
-			await rows(page)
-				.getByRole('button', { name: mode === 'update' ? 'Edit work log' : 'Delete', exact: true })
-				.click();
+			await worklogAction(rows(page), mode === 'update' ? 'Edit work log' : 'Delete');
 			await expect(dialog(page).getByRole('button', { name: mode === 'delete' ? 'Delete' : 'Save', exact: true })).toBeEnabled();
 		}
 		state.loseResponse = true;
@@ -350,7 +367,7 @@ for (const mode of ['create', 'update', 'delete'] as const) {
 test('remote changes preserve an open draft and require explicit realignment', async ({ page }) => {
 	const { state, attach } = fixture('member', 1);
 	await attach(page);
-	await rows(page).getByRole('button', { name: 'Edit work log' }).click();
+	await worklogAction(rows(page), 'Edit work log');
 	await expect(dialog(page).getByLabel('Duration', { exact: true })).toBeEnabled();
 	await fill(page, '2h', 'My draft');
 	state.logs['EP-1'][0].description = 'Remote correction';
@@ -373,6 +390,7 @@ test('validation preserves Unicode and reports the daily limit on duration', asy
 	await fill(page, '0');
 	await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(dialog(page).getByRole('alert')).toContainText('1 to 1,440');
+	await expect(dialog(page).getByLabel('Duration', { exact: true })).toBeFocused();
 	expect(state.writes).toHaveLength(0);
 	await fill(page, '1', '🙂'.repeat(2001));
 	await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
@@ -393,7 +411,7 @@ test('earlier events expose work logs after fifty and support keyboard cancellat
 	await attach(page);
 	await expect(rows(page)).toHaveCount(1);
 	await expect(rows(page)).toContainText('Entry 55');
-	await rows(page).getByRole('button', { name: 'Edit work log', exact: true }).click();
+	await worklogAction(rows(page), 'Edit work log');
 	await expect(dialog(page).getByLabel('Description (optional)', { exact: true })).toHaveValue('Entry 55');
 	await fill(page, '2h', 'Corrected beyond first page');
 	await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
@@ -471,7 +489,7 @@ test('creation rereads workspace today when the dialog opens', async ({ page }) 
 	await attach(page);
 	state.today = '2026-01-03';
 	await openCreate(page);
-	await expect(dialog(page).getByLabel('From', { exact: true })).toHaveValue('2026-01-03');
+	await expect(dateField(dialog(page), 'From')).toHaveAttribute('data-value', '2026-01-03');
 });
 
 for (const view of ['page', 'panel'] as const) {
@@ -570,18 +588,18 @@ for (const view of ['page', 'panel'] as const) {
 		state.today = '2026-03-30';
 		await attach(page, view);
 		await openCreate(page);
-		await dialog(page).getByLabel('From', { exact: true }).fill('2026-03-27');
-		await dialog(page).getByLabel('To', { exact: true }).fill('2026-03-30');
+		await fillDate(dialog(page), 'From', '2026-03-27');
+		await fillDate(dialog(page), 'To', '2026-03-30');
 		await fill(page, '0.5d', 'Across the weekend');
-		await expect(dialog(page)).toContainText('2 selected days · Total 1d');
+		await expect(dialog(page)).toContainText('2 days × 4h per day = 8h');
 		await dialog(page).getByLabel('Skip Saturdays and Sundays').uncheck();
-		await expect(dialog(page)).toContainText('4 selected days · Total 2d');
+		await expect(dialog(page)).toContainText('4 days × 4h per day = 16h');
 		await dialog(page).getByLabel('Skip Saturdays and Sundays').check();
 		await dialog(page).screenshot({ path: testInfo.outputPath(`effort-period-${view}.png`) });
 		state.loseResponse = true;
 		await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
 		await expect(dialog(page).getByRole('alert')).toContainText('could not be confirmed');
-		await expect(dialog(page).getByLabel('From', { exact: true })).toHaveValue('2026-03-27');
+		await expect(dateField(dialog(page), 'From')).toHaveAttribute('data-value', '2026-03-27');
 		await dialog(page).getByRole('button', { name: 'Retry save', exact: true }).click();
 		await expect(dialog(page)).toHaveCount(0);
 		expect(state.writes[0].body).toMatchObject({ work_date: '2026-03-27', end_date: '2026-03-30', skip_weekends: true, duration_minutes: 240 });
@@ -609,14 +627,15 @@ for (const view of ['page', 'panel'] as const) {
 
 test('invalid and weekend-only periods keep the draft without submitting', async ({page}) => {
 	const {state,attach}=fixture();state.today='2026-01-05';await attach(page);await openCreate(page);await fill(page,'1d','Keep my period');
-	await dialog(page).getByLabel('From',{exact:true}).fill('2026-01-03');
-	await dialog(page).getByLabel('To',{exact:true}).fill('2026-01-04');
+	await fillDate(dialog(page), 'From', '2026-01-03');
+	await fillDate(dialog(page), 'To', '2026-01-04');
 	await dialog(page).getByRole('button',{name:'Save',exact:true}).click();
 	await expect(dialog(page).getByRole('alert')).toContainText('no selected working days');
 	expect(state.writes).toHaveLength(0);
-	await dialog(page).getByLabel('To',{exact:true}).fill('2026-01-02');
+	await fillDate(dialog(page), 'To', '2026-01-02');
 	await dialog(page).getByRole('button',{name:'Save',exact:true}).click();
-	await expect(dialog(page).getByLabel('To',{exact:true})).toHaveAttribute('aria-invalid','true');
+	await expect(dialog(page).getByRole('group', { name: 'To', exact: true })).toHaveAttribute('aria-invalid','true');
+	await expect(dateField(dialog(page), 'To').getByRole('spinbutton').first()).toBeFocused();
 	await expect(dialog(page).getByLabel('Description (optional)',{exact:true})).toHaveValue('Keep my period');
 	expect(state.writes).toHaveLength(0);
 });
@@ -661,12 +680,222 @@ test('only the latest event offers actions and deletion removes actions from the
 	await attach(page);
 	await expect(register(page).locator('[data-effort-event="worklog_updated"]')).toBeVisible();
 	await register(page).getByRole('button', {name:'Show 1 earlier event(s)',exact:true}).click();
-	await expect(register(page).getByRole('button', {name:'Edit work log',exact:true})).toHaveCount(1);
+	await expect(register(page).getByRole('button', {name:'Worklog actions',exact:true})).toHaveCount(1);
 	await expect(register(page).locator('[data-effort-event="worklog_created"]').getByRole('button')).toHaveCount(0);
 	state.history['EP-1'].push(make('b-deleted','worklog_deleted',3,snapshot,null));
 	state.logs['EP-1'] = [];
 	state.refresh();
 	await expect(register(page).locator('[data-effort-event]')).toHaveCount(3);
-	await expect(register(page).getByRole('button', {name:'Edit work log',exact:true})).toHaveCount(0);
-	await expect(register(page).getByRole('button', {name:'Delete',exact:true})).toHaveCount(0);
+	await expect(register(page).getByRole('button', {name:'Worklog actions',exact:true})).toHaveCount(0);
+	await expect(register(page).getByRole('button', {name:'Worklog actions',exact:true})).toHaveCount(0);
+});
+
+for (const timezoneId of ['Europe/Rome', 'America/Los_Angeles', 'Pacific/Kiritimati']) {
+	test.describe(`TSUX shared calendar in ${timezoneId}`, () => {
+		test.use({ timezoneId });
+		test('project date keeps the API calendar day, clears and restores focus', async ({ page }, testInfo) => {
+			const { state, attach } = fixture();
+			state.projectDates.start_date = '2026-10-21T00:00:00Z';
+			await attach(page);
+			await page.goto(`/test/projects/${projectId}`);
+			const trigger = page.getByRole('button', { name: 'Set start', exact: true });
+			await expect(trigger).toContainText('Oct 21, 2026');
+			await trigger.click();
+			await expect(page.locator('[data-selected][data-bits-day]')).toHaveText('21');
+			await page.screenshot({ path: testInfo.outputPath('project-calendar.png'), animations: 'disabled' });
+			await page.keyboard.press('Escape');
+			await expect(trigger).toBeFocused();
+			await page.getByRole('button', { name: 'Clear date', exact: true }).click();
+			await expect(trigger).toContainText('Set start');
+			expect(state.fieldWrites.at(-1)).toEqual({ start_date: null });
+			await expect(trigger).toBeFocused();
+		});
+	});
+}
+
+test('TSUX issue date and parent search preserve domain callbacks and exclusions', async ({ page }, testInfo) => {
+	const { state, attach } = fixture();
+	state.issues[0].due_date = '2026-10-21';
+	await attach(page);
+	const date = page.getByRole('button', { name: 'Set date', exact: true });
+	await expect(date).toContainText('Oct 21, 2026');
+	await date.click();
+	await expect(page.locator('[data-selected][data-bits-day]')).toHaveText('21');
+	await page.keyboard.press('Escape');
+	await page.getByRole('button', { name: 'Clear date', exact: true }).click();
+	await expect(date).toContainText('Set date');
+	expect(state.fieldWrites.at(-1)).toEqual({ due_date: '' });
+	await page.getByRole('button', { name: 'Issue actions', exact: true }).click();
+	await page.getByRole('button', { name: 'Add parent', exact: true }).click();
+	const picker = page.getByRole('dialog');
+	await expect(picker.getByRole('button', { name: /EP-2 · Worklog issue 2/ })).toBeVisible();
+	await expect(picker.getByRole('button', { name: /EP-1 · Worklog issue 1/ })).toHaveCount(0);
+	await picker.getByRole('searchbox').fill('Worklog');
+	await expect(picker.getByRole('button', { name: /EP-2 · Worklog issue 2/ })).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('issue-search.png'), animations: 'disabled' });
+	await picker.getByRole('searchbox').press('ArrowDown');
+	await expect(picker.getByRole('button', { name: /EP-2 · Worklog issue 2/ })).toBeFocused();
+	await page.keyboard.press('Enter');
+	await expect(picker).toHaveCount(0);
+	expect(state.fieldWrites.at(-1)).toEqual({ parent_id: state.issues[1].id });
+});
+
+for (const width of [320, 1440]) {
+	test(`TSUX cycle range is bounded, required and editable at ${width}`, async ({ page }, testInfo) => {
+		const { state, attach } = fixture('admin');
+		await attach(page);
+		await page.setViewportSize({ width, height: 1000 });
+		await page.goto(`/test/teams/${teamId}/cycles/cycle-1`);
+		const trigger = page.getByRole('button', { name: 'Select dates', exact: true });
+		await expect(trigger).toContainText('Oct 21, 2026');
+		await trigger.click();
+		const calendar = page.locator('[data-slot="popover-content"]');
+		await expect(calendar.getByRole('grid')).toHaveCount(width < 640 ? 1 : 2);
+		await expect(page.getByRole('button', { name: 'Clear date', exact: true })).toHaveCount(0);
+		expect(await calendar.evaluate(el => el.getBoundingClientRect().right <= innerWidth)).toBe(true);
+		await page.screenshot({ path: testInfo.outputPath(`cycle-range-${width}.png`), animations: 'disabled' });
+		await calendar.locator('[data-bits-day]:not([data-outside-month])').filter({ hasText: /^22$/ }).first().click();
+		await calendar.locator('[data-bits-day]:not([data-outside-month])').filter({ hasText: /^29$/ }).first().click();
+		await expect(trigger).toBeFocused();
+		expect(state.fieldWrites.at(-1)).toMatchObject({ start_date: '2026-10-22', end_date: '2026-10-29' });
+	});
+}
+
+for (const entry of ['/test/my-issues?priority=1,2', `/test/teams/${teamId}?priority=1,2`, '/test/views/view-1']) {
+test(`TSUX FilterBuilder priority shares searchable options and preserves values at ${entry}`, async ({ page }, testInfo) => {
+	const { attach } = fixture();
+	await attach(page);
+	await page.goto(entry);
+	if (entry.includes('/teams/')) {
+		await page.getByRole('button', { name: 'Filter', exact: true }).last().click();
+		await page.getByRole('button', { name: 'Priority', exact: true }).click();
+		await page.getByRole('option', { name: 'Urgent', exact: true }).click();
+		await page.getByRole('option', { name: 'High', exact: true }).click();
+		await page.keyboard.press('Escape');
+	}
+	const trigger = page.getByRole('button', { name: 'Priority', exact: true });
+	await expect(trigger).toContainText('Urgent +1');
+	expect((await trigger.boundingBox())!.width).toBeLessThanOrEqual(256);
+	await trigger.click();
+	const before = page.url();
+	await page.getByRole('combobox').fill('Low');
+	await expect(page.getByRole('option', { name: 'Low', exact: true })).toBeVisible();
+	expect(page.url()).toBe(before);
+	await page.screenshot({ path: testInfo.outputPath('filter-builder-search.png'), animations: 'disabled' });
+	await page.getByRole('option', { name: 'Low', exact: true }).click();
+	await page.keyboard.press('Escape');
+	await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+	await expect(trigger).toContainText('Urgent +2');
+	await trigger.click();
+	await expect(page.getByRole('option', { name: 'Low', exact: true })).toHaveAttribute('aria-selected', 'true');
+	await page.getByRole('button', { name: 'Remove filter', exact: true }).click();
+	await expect(trigger).toHaveCount(0);
+});
+}
+
+test('TSUX creation and context menu share due-date presets', async ({ page }, testInfo) => {
+	const { state, attach } = fixture();
+	await attach(page);
+	await page.getByRole('button', { name: 'New issue', exact: true }).click();
+	const creation = page.getByRole('dialog');
+	await creation.getByRole('button', { name: 'Due date', exact: true }).click();
+	await page.getByRole('button', { name: /^Tomorrow/ }).click();
+	await expect(creation.getByRole('button', { name: 'Clear date', exact: true })).toBeVisible();
+	await creation.getByRole('button', { name: 'Clear date', exact: true }).click();
+	await expect(creation.getByRole('button', { name: 'Due date', exact: true })).toContainText('Due date');
+	await page.keyboard.press('Escape');
+	await page.goto(`/test/projects/${projectId}`);
+	const row = page.getByRole('button', { name: /^EP-1 Worklog issue 1/ });
+	await row.click({ button: 'right' });
+	await page.getByRole('menuitem', { name: 'Due date...', exact: true }).click();
+	await expect(page.getByRole('button', { name: /^Tomorrow/ })).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('context-due-date.png'), animations: 'disabled' });
+	await page.getByRole('button', { name: /^Tomorrow/ }).click();
+	await expect.poll(() => state.fieldWrites.length).toBe(1);
+	expect(state.fieldWrites[0].due_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+	await row.click({ button: 'right' });
+	await page.getByRole('menuitem', { name: 'Mark as', exact: true }).hover();
+	await page.getByRole('menuitem', { name: 'Sub-issue of...', exact: true }).click();
+	await expect(page.getByRole('dialog').getByRole('button', { name: /EP-2 · Worklog issue 2/ })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(row.locator('..')).toBeFocused();
+});
+
+test('TSUX bulk parent search uses shared dialog and preserves excluded selected issues', async ({ page }) => {
+	const { attach } = fixture();
+	await attach(page);
+	await page.goto('/test/my-issues');
+	const row = page.getByRole('button', { name: /^EP-1 Worklog issue 1/ });
+	await row.getByRole('checkbox').first().click();
+	await page.getByRole('button', { name: 'Actions', exact: true }).click();
+	await page.getByRole('button', { name: /Set parent Move selected/ }).click();
+	const picker = page.getByRole('dialog');
+	await expect(picker.getByRole('button', { name: /EP-2 · Worklog issue 2/ })).toBeVisible();
+	await expect(picker.getByRole('button', { name: /EP-1 · Worklog issue 1/ })).toHaveCount(0);
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeFocused();
+});
+
+
+test('TSUX cycle create and edit keep range drafts and disabled overlapping days', async ({ page }, testInfo) => {
+	const { attach } = fixture('admin');
+	await attach(page);
+	await page.goto(`/test/teams/${teamId}/cycles`);
+	await page.getByRole('button', { name: 'New Cycle', exact: true }).click();
+	await page.getByRole('button', { name: 'Select start and end dates', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Clear date', exact: true })).toHaveCount(0);
+	const calendar = page.locator('[data-slot="popover-content"]');
+	await expect(calendar.locator('[data-bits-day][data-disabled]').first()).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('create-cycle-range.png'), animations: 'disabled' });
+	await page.keyboard.press('Escape');
+	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+	const row = page.getByRole('button').filter({ has: page.getByText('October cycle', { exact: true }) }).first();
+	await row.getByRole('button', { name: 'Actions · October cycle', exact: true }).click();
+	await page.getByRole('button', { name: 'Edit cycle', exact: true }).click();
+	const trigger = page.getByRole('button', { name: 'Select start and end dates', exact: true });
+	await expect(trigger).toContainText('Oct 21, 2026');
+	await trigger.click();
+	await expect(calendar.getByRole('grid')).toHaveCount(2);
+	await page.screenshot({ path: testInfo.outputPath('edit-cycle-range.png'), animations: 'disabled' });
+	await page.keyboard.press('Escape');
+	await expect(trigger).toBeFocused();
+	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
+
+test('TSUX Inbox keeps its timestamp adapter around the shared calendar', async ({ page }, testInfo) => {
+	const { attach } = fixture();
+	await attach(page);
+	const notification = { id: 'notification-1', issue_id: null, issue_identifier: null, type: 'issue_assigned', title: 'Calendar notification', read_at: null, snoozed_until: null, archived_at: null, created_at: timestamp };
+	let until = '';
+	await page.route('**/api/notifications**', route => route.fulfill({ json: { notifications: [notification], unread_count: 1 } }));
+	await page.route('**/api/notifications/notification-1/snooze', route => {
+		until = route.request().postDataJSON().until;
+		return route.fulfill({ json: { ...notification, snoozed_until: until } });
+	});
+	await page.goto('/test/inbox');
+	await page.getByRole('button', { name: /^Calendar notification / }).click({ button: 'right' });
+	await page.getByRole('menuitem', { name: 'Snooze', exact: true }).hover();
+	await page.getByRole('menuitem', { name: 'Pick date...', exact: true }).click();
+	await expect(page.getByRole('button', { name: /^Tomorrow/ })).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('inbox-calendar.png'), animations: 'disabled' });
+	await page.getByRole('button', { name: /^Tomorrow/ }).click();
+	await expect.poll(() => until).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('TSUX incomplete date preserves the draft and focuses the first invalid field', async ({ page }) => {
+	const { state, attach } = fixture();
+	await attach(page);
+	await openCreate(page);
+	await fill(page, '1h', 'Keep this incomplete draft');
+	const from = dateField(dialog(page), 'From');
+	await from.locator('[data-segment="day"]').focus();
+	await page.keyboard.press('Backspace');
+	await expect(from).toHaveAttribute('data-value', '');
+	await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
+	await expect(from.getByRole('spinbutton').first()).toBeFocused();
+	await expect(dialog(page).getByLabel('Description (optional)', { exact: true })).toHaveValue('Keep this incomplete draft');
+	expect(state.writes).toHaveLength(0);
+	await fillDate(dialog(page), 'From', '2026-01-02');
+	await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
+	await expect(rows(page)).toHaveCount(1);
 });

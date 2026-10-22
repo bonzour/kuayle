@@ -261,7 +261,7 @@
 		<main class="flex-1 overflow-y-auto">
 			<div class="mx-auto w-full max-w-[1440px] space-y-8 px-4 py-6 sm:px-6">
 				{#if activeTab === 'overview'}
-					<section>
+					<section aria-busy={overviewLoading}>
 						<div class="mb-3 flex items-center gap-2">
 							<Activity size={14} class="text-[var(--app-accent-light)]" />
 							<div>
@@ -293,7 +293,7 @@
 						</section>
 					{/if}
 
-					<section>
+					<section aria-busy={burnupLoading}>
 						<div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 							<div class="flex items-center gap-2">
 								<TrendingUp size={14} class="text-[var(--app-accent-light)]" />

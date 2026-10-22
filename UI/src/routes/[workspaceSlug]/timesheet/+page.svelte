@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, untrack, tick } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { CalendarClock, RefreshCw } from 'lucide-svelte';
@@ -10,12 +10,13 @@
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
 	import TimesheetFilter from '$lib/features/timesheets/TimesheetFilter.svelte';
 	import TimesheetPeriodPicker from '$lib/features/timesheets/TimesheetPeriodPicker.svelte';
+	import { presentationKey, type TimesheetPresentation } from '$lib/features/timesheets/presentation';
 	import TimesheetGrid from '$lib/features/timesheets/TimesheetGrid.svelte';
 	import TimesheetWorklogDetail from '$lib/features/timesheets/TimesheetWorklogDetail.svelte';
 	import TimesheetWorklogDialog from '$lib/features/timesheets/TimesheetWorklogDialog.svelte';
 	import { emitAppRefresh } from '$lib/api/refresh';
 	import { personLabel } from '$lib/features/timesheets/people';
-	import { periodForDate } from '$lib/features/timesheets/period';
+	import { periodForDate, formatTimesheetDays } from '$lib/features/timesheets/period';
 	import { createTimesheetSubscriptions } from '$lib/features/timesheets/subscriptions';
 	import { readTimesheetLocation, writeTimesheetLocation, type TimesheetLocation } from '$lib/features/timesheets/navigation';
 	import { allTimesheetFilters, changeMode, changeWorkspaces, reconcileFilters } from '$lib/features/timesheets/selection';
@@ -23,6 +24,7 @@
 	import { getTimesheet, getTimesheetOptions } from '$lib/api/timesheets';
 	import type { TimesheetMode, TimesheetOptions, TimesheetSelection, TimesheetGrid as TimesheetGridData, TimesheetPeriod, TimesheetWorkspaceOption, TimesheetGroup, TimesheetQuery, TimesheetWorklogTarget } from '$lib/types/timesheets';
 	import { m } from '$lib/paraglide/messages.js';
+	import { getLocale } from '$lib/paraglide/runtime.js';
 
 	let view = $state<TimesheetLocation>(readTimesheetLocation(new URLSearchParams()));
 	const mode = $derived(view.mode);
@@ -54,8 +56,23 @@
 	let context = '';
 	const subscriptions = createTimesheetSubscriptions(invalidateRemote, connected => updatesConnected = connected);
 
+	let filtersOpen = $state(false);
+	let gridComponent = $state<{ capture: () => TimesheetPresentation }>();
+	let presentation = $state<{ key: string; state: TimesheetPresentation } | null>(null);
+	function capturePresentation() {
+		if (grid && gridComponent) presentation = { key: presentationKey(authState.user?.id, readQuery(), grid), state: gridComponent.capture() };
+	}
+	function findFocus(origin: HTMLElement | null): HTMLElement | null {
+		if (origin?.isConnected) return origin;
+		const key = origin?.dataset.focusKey;
+		return key ? [...document.querySelectorAll<HTMLElement>('[data-focus-key]')].find(node => node.dataset.focusKey === key) ?? null : null;
+	}
+	function resetFilters() { navigate({ ...view, filters: allTimesheetFilters(), owners: null, groupPage: 1 }, m['timesheet.scope_changed']()); }
+	async function openFilters() { filtersOpen = true; await tick(); document.querySelector<HTMLButtonElement>('#timesheet-filters button')?.focus(); }
+
 	function invalidateRemote() {
 		if (!authState.user || invalidLink) return;
+		capturePresentation();
 		generation++;
 		grid = null; loading = true; refreshingRemote = true; detailSuspended = true;
 		clearTimeout(refreshTimer);
@@ -79,6 +96,7 @@
 		if (active?.getAttribute('role') === 'tab') returnTabFocus = active;
 		generation++;
 		clearTimeout(refreshTimer);
+		presentation = null;
 		loading = true; grid = null; detail = null;
 		subscribe(value);
 		pendingFeedback = { href: url.href, message };
@@ -96,7 +114,8 @@
 	function startWorklog(target: TimesheetWorklogTarget) {
 		const origin = document.activeElement as HTMLElement | null;
 		operation = { target, restoreFocus: () => {
-			if (origin?.isConnected) origin.focus();
+			const target = findFocus(origin);
+			if (target) target.focus();
 			else if (detail) (document.querySelector('[data-timesheet-detail] button') as HTMLElement | null)?.focus();
 			else heading?.focus();
 		} };
@@ -147,6 +166,13 @@
 		];
 	});
 
+	const activeFilters = $derived([
+		{ key: 'workspaces', label: m['timesheet.workspaces'](), value: filters.workspaces, choices: workspaceOptions, remove: () => selectWorkspaces(null) },
+		{ key: 'teams', label: m['timesheet.teams'](), value: filters.teams, choices: teamOptions, remove: () => selectChild('teams', null) },
+		{ key: 'projects', label: m['timesheet.projects'](), value: filters.projects, choices: projectOptions, remove: () => selectChild('projects', null) },
+		...(mode !== 'personal' ? [{ key: 'people', label: m['timesheet.people'](), value: owners, choices: peopleOptions, remove: () => selectOwners(null) }] : [])
+	].filter(filter => filter.value !== null));
+
 	async function load(request = $state.snapshot(view), recover = true, preserveDetail = false) {
 		clearTimeout(refreshTimer);
 		const id = ++generation;
@@ -154,6 +180,7 @@
 		const url = new URL(page.url);
 		const current = () => id === generation && userId === authState.user?.id;
 		const previousScope = authorizedScope?.mode === request.mode ? authorizedScope.ids : [];
+		capturePresentation();
 		view = request;
 		loading = true; failed = false; invalidLink = false; grid = null;
 		refreshingRemote = preserveDetail;
@@ -163,6 +190,7 @@
 			const result = await getTimesheetOptions(request.mode, request.filters);
 			if (!current()) return;
 			if (previousScope.some(workspaceId => !result.workspaces.some(w => w.id === workspaceId))) {
+				presentation = null;
 				feedback = m['timesheet.access_changed']();
 				if (detail?.group.workspace_id && !result.scope.workspace_ids.includes(detail.group.workspace_id)) detail = null;
 			}
@@ -188,6 +216,7 @@
 					await load({ ...resolved, groupPage: lastPage }, false, preserveDetail);
 					return;
 				}
+				if (presentation && presentation.key !== presentationKey(userId, readQuery(resolved), response)) presentation = null;
 				grid = response;
 				reference = response.reference;
 			}
@@ -201,6 +230,7 @@
 			}
 		} catch (error) {
 			if (!current()) return;
+			presentation = null;
 			grid = null; options = null; reference = null; personalWorkspaces = []; detail = null;
 			const status = (error as { status?: number })?.status;
 			if (recover && (status === 403 || status === 404)) {
@@ -260,9 +290,9 @@
 			}
 			generation++;
 			clearTimeout(refreshTimer);
-			grid = null; detail = null;
+			grid = null; detail = null; presentation = null;
 			if (context !== `${userId}/${slug}`) {
-				subscriptions.close(); authorizedScope = null;
+				subscriptions.close(); authorizedScope = null; presentation = null;
 				options = null; reference = null;
 				personalWorkspaces = []; operation = null;
 				context = `${userId}/${slug}`;
@@ -285,70 +315,72 @@
 
 <div class="flex h-full min-w-0 flex-col bg-[var(--color-bg)]">
 	<header class="flex h-[49px] shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-4 sm:px-6">
-		<SidebarToggle />
-		<CalendarClock size={16} class="text-[var(--color-text-secondary)]" />
-		<h1 bind:this={heading} tabindex="-1" class="text-sm font-medium text-[var(--color-text-primary)]">{m['timesheet.title']()}</h1>
+		<SidebarToggle /><CalendarClock size={16} class="text-[var(--color-text-secondary)]" />
+		<h1 bind:this={heading} tabindex="-1" class="text-sm font-medium">{m['timesheet.title']()}</h1>
 	</header>
 	<Tabs.Root value={options ? mode : 'personal'} onValueChange={selectMode} activationMode="manual" disabled={(loading && !refreshingRemote) || !options || invalidLink} class="min-h-0 min-w-0 flex-1 gap-0">
-		<div class="shrink-0 border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)]/35">
-			<div class="mx-auto w-full max-w-[1440px] space-y-3 px-4 py-3 sm:px-6">
-				<div class="max-w-full overflow-x-auto">
-					<Tabs.List aria-label={m['timesheet.mode']()} class="h-8 w-fit rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)] p-0.5">
-						{#each options?.available_modes ?? ['personal'] as value}
-							<Tabs.Trigger value={value} class="h-6 shrink-0 rounded-md px-2.5 text-xs">{modeLabels[value as TimesheetMode]}</Tabs.Trigger>
-						{/each}
-					</Tabs.List>
-				</div>
-				<div class="grid gap-3 sm:grid-cols-2 {mode === 'personal' ? 'xl:grid-cols-3' : 'xl:grid-cols-4'}">
-					<TimesheetFilter label={m['timesheet.workspaces']()} selection={filters.workspaces} options={workspaceOptions} disabled={!options} onchange={selectWorkspaces} />
-					<TimesheetFilter label={m['timesheet.teams']()} selection={filters.teams} options={teamOptions} disabled={!options || selectedWorkspaceIds.length === 0} onchange={(value) => selectChild('teams', value)} />
-					<TimesheetFilter label={m['timesheet.projects']()} selection={filters.projects} options={projectOptions} disabled={!options || selectedWorkspaceIds.length === 0} onchange={(value) => selectChild('projects', value)} />
-					{#if mode !== 'personal'}
-						<TimesheetFilter label={m['timesheet.people']()} selection={owners} options={peopleOptions} disabled={!grid || loading} onchange={selectOwners} />
-					{/if}
-				</div>
+		<div class="shrink-0 border-b border-[var(--app-border)] px-4 py-3 sm:px-6">
+			<div class="mx-auto max-w-[1440px] overflow-x-auto">
+				<Tabs.List aria-label={m['timesheet.mode']()} class="min-h-8 w-fit rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)] p-0.5">
+					{#each options?.available_modes ?? ['personal'] as value}<Tabs.Trigger value={value} class="min-h-8 shrink-0 rounded-md px-2.5 text-xs">{modeLabels[value as TimesheetMode]}</Tabs.Trigger>{/each}
+				</Tabs.List>
 			</div>
 		</div>
 		<Tabs.Content value={options ? mode : 'personal'} class="min-h-0 min-w-0 flex-1 overflow-y-auto">
-			<main>
-				<div class="mx-auto w-full max-w-[1440px] space-y-5 px-4 py-6 sm:px-6">
-					<div class="flex flex-wrap items-center justify-between gap-3">
-						<p role="status" class="text-sm text-[var(--color-text-secondary)]">{feedback}</p>
-						<div class="flex shrink-0 gap-2">
-							{#if canRecord && !invalidLink}<Button size="sm" disabled={loading} onclick={() => startWorklog({ mode: 'create', ownerId: mode !== 'personal' && owners?.length === 1 ? owners[0] : authState.user?.id })}>{m['efforts.worklogs.create']()}</Button>{/if}
-							<Button variant="outline" size="sm" disabled={loading || invalidLink} onclick={() => load()}><RefreshCw size={14} />{m['timesheet.refresh']()}</Button>
-						</div>
+			<main class="mx-auto w-full max-w-[1440px] space-y-4 px-4 py-4 sm:px-6">
+				<div class="flex flex-wrap items-start justify-between gap-3">
+					{#if period && reference}<TimesheetPeriodPicker value={period} {reference} disabled={loading} onchange={selectPeriod} />{/if}
+					<div class="flex flex-wrap gap-2">
+						{#if canRecord && !invalidLink}<Button class="min-h-11 sm:min-h-8" size="sm" disabled={loading} aria-describedby="timesheet-destination-hint" onclick={() => startWorklog({ mode: 'create', ownerId: mode !== 'personal' && owners?.length === 1 ? owners[0] : authState.user?.id })}>{m['efforts.worklogs.create']()}</Button>{/if}
+						<Button variant="outline" size="sm" class="min-h-8" disabled={loading || invalidLink} onclick={() => load()}><RefreshCw size={14} />{m['timesheet.refresh']()}</Button>
 					</div>
-					{#if !updatesConnected}<p role="status" class="text-sm text-[var(--color-text-secondary)]">{m['timesheet.updates_reconnecting']()}</p>{/if}
-					{#if period && reference}
-						<TimesheetPeriodPicker value={period} {reference} disabled={loading} onchange={selectPeriod} />
+				</div>
+				<p id="timesheet-destination-hint" class="sr-only">{m['controls.destination_hint']()}</p>
+				<div class="space-y-2">
+					<Button variant="outline" class="min-h-8 sm:hidden" aria-expanded={filtersOpen} aria-controls="timesheet-filters" onclick={() => filtersOpen = !filtersOpen}>{m['controls.filters']()}</Button>
+					<div id="timesheet-filters" class="gap-3 sm:grid sm:grid-cols-2 {mode === 'personal' ? 'xl:grid-cols-3' : 'xl:grid-cols-4'} {filtersOpen ? 'grid' : 'hidden'}">
+						<TimesheetFilter label={m['timesheet.workspaces']()} selection={filters.workspaces} options={workspaceOptions} disabled={!options} onchange={selectWorkspaces} />
+						<TimesheetFilter label={m['timesheet.teams']()} selection={filters.teams} options={teamOptions} disabled={!options || selectedWorkspaceIds.length === 0} onchange={(value) => selectChild('teams', value)} />
+						<TimesheetFilter label={m['timesheet.projects']()} selection={filters.projects} options={projectOptions} disabled={!options || selectedWorkspaceIds.length === 0} onchange={(value) => selectChild('projects', value)} />
+						{#if mode !== 'personal'}<TimesheetFilter label={m['timesheet.people']()} selection={owners} options={peopleOptions} disabled={!grid || loading} onchange={selectOwners} />{/if}
+					</div>
+					{#if options && activeFilters.length}
+						<div class="flex flex-wrap items-center gap-2" aria-label={m['controls.filters']()}>
+							{#each activeFilters as filter (filter.key)}
+								<div class="inline-flex max-w-full items-center rounded-md border border-[var(--app-border)] text-xs"><span class="break-words px-2">{filter.label}: {filter.value!.length === 0 ? m['timesheet.none_selected']() : filter.value!.map(id => filter.choices.find(option => option.id === id)?.name).filter(Boolean).join(', ') || m['timesheet.selected_count']({ count: filter.value!.length })}</span><Button variant="ghost" size="icon-sm" class="min-h-8 min-w-8 shrink-0" aria-label={m['controls.remove_filter']({ name: filter.label })} onclick={filter.remove}>×</Button></div>
+							{/each}
+							<Button variant="ghost" size="sm" aria-describedby="timesheet-reset-hint" onclick={resetFilters}>{m['controls.reset_filters']()}</Button>
+						</div>
+						<p id="timesheet-reset-hint" class="text-xs text-muted-foreground">{m['controls.reset_scope']()}</p>
 					{/if}
-					{#if loading}
-						<LoadingState />
-					{:else if invalidLink}
-						<ErrorState message={m['timesheet.invalid_url']()} retryLabel={m['timesheet.reset_view']()} onretry={() => navigate(readTimesheetLocation(new URLSearchParams()), '', true)} />
-					{:else if failed}
-						<ErrorState message={m['timesheet.failed_load']()} retryLabel={m['timesheet.retry']()} onretry={() => load()} />
+				</div>
+				{#if feedback}<p role="status" class="text-sm text-muted-foreground">{feedback}</p>{/if}
+				{#if !updatesConnected}<p role="status" class="text-sm text-muted-foreground">{m['timesheet.updates_reconnecting']()}</p>{/if}
+				<div aria-busy={loading} style:min-height={loading && presentation ? `${presentation.state.height}px` : undefined}>
+					{#if loading}<LoadingState message={refreshingRemote ? m['controls.refreshing']() : undefined} />
+					{:else if invalidLink}<ErrorState message={m['timesheet.invalid_url']()} retryLabel={m['timesheet.reset_view']()} onretry={() => navigate(readTimesheetLocation(new URLSearchParams()), '', true)} />
+					{:else if failed}<ErrorState message={m['timesheet.failed_load']()} retryLabel={m['timesheet.retry']()} onretry={() => load()} />
 					{:else if options}
-						{#if options.workspaces.length === 0}
-							<p class="text-sm text-[var(--color-text-secondary)]">{m['timesheet.no_workspaces']()}</p>
+						{#if options.workspaces.length === 0}<p class="text-sm text-muted-foreground">{m['timesheet.no_workspaces']()}</p>
 						{:else if options.scope.workspace_ids.length === 0}
-							<p class="text-sm text-[var(--color-text-secondary)]">{m['timesheet.no_workspace_selected']()}</p>
+							<div class="space-y-3 rounded-lg border border-[var(--app-border)] p-4"><p class="text-sm">{m['timesheet.no_workspace_selected']()}</p><Button variant="outline" onclick={openFilters}>{m['timesheet.choose_workspace']()}</Button></div>
 						{:else}
-							<section aria-label={m['timesheet.effective_scope']()} class="space-y-2">
-								<h2 class="text-sm font-medium text-[var(--color-text-primary)]">{m['timesheet.effective_scope']()}</h2>
-								<ul class="space-y-2 text-sm text-[var(--color-text-secondary)]">
-									{#each options.workspaces.filter((w) => options?.scope.workspace_ids.includes(w.id)) as workspace (workspace.id)}
-										<li>{workspaceName(workspace.id)} · {workspace.timezone} · {workspace.can_record_work ? m['timesheet.recording_allowed']() : m['timesheet.read_only']()}</li>
-									{/each}
-								</ul>
+							<section aria-label={m['timesheet.effective_scope']()} class="mb-3 space-y-2">
+								<div class="flex flex-wrap items-baseline justify-between gap-2">
+									<details class="min-w-0 text-xs text-muted-foreground"><summary class="min-h-8 cursor-pointer">{m['controls.scope_count']({ count: options.scope.workspace_ids.length })} · {m['controls.readonly_count']({ count: options.workspaces.filter(w => options?.scope.workspace_ids.includes(w.id) && !w.can_record_work).length })} · {m['controls.scope_details']()}</summary><ul class="space-y-1">{#each options.workspaces.filter(w => options?.scope.workspace_ids.includes(w.id)) as workspace (workspace.id)}<li>{workspaceName(workspace.id)} · {workspace.timezone} · {workspace.can_record_work ? m['timesheet.recording_allowed']() : m['timesheet.read_only']()}</li>{/each}</ul></details>
+									{#if grid}<p class="text-sm font-semibold">{m['controls.filtered_total']()}: <span class="tabular-nums">{formatTimesheetDays(grid.total_minutes, getLocale())}</span></p>{/if}
+								</div>
+								<p class="text-xs text-muted-foreground">{m['timesheet.totals_note']()}</p>
 							</section>
 						{/if}
 						{#if grid && options.scope.workspace_ids.length > 0}
 							{#if grid.empty_reason}
-								<p class="rounded-lg border border-[var(--app-border)] p-4 text-sm text-[var(--color-text-secondary)]">{grid.empty_reason === 'period' ? m['timesheet.no_work']() : m['timesheet.no_results']()}</p>
+								<div class="mb-3 space-y-3 rounded-lg border border-[var(--app-border)] p-4"><p class="text-sm">{grid.empty_reason === 'period' ? m['timesheet.no_work']() : m['timesheet.no_results']()}</p>
+									{#if grid.empty_reason === 'period' && canRecord}<Button onclick={() => startWorklog({ mode: 'create', ownerId: authState.user?.id })}>{m['efforts.worklogs.create']()}</Button>
+									{:else if grid.empty_reason !== 'period'}<Button variant="outline" onclick={openFilters}>{m['controls.filters']()}</Button>{/if}
+								</div>
 							{/if}
-							<TimesheetGrid value={grid} oncell={openCell} oncreate={createFromCell} onperson={(id) => selectOwners([id])} onpage={(value) => navigate({ ...view, groupPage: value })} />
+							<TimesheetGrid bind:this={gridComponent} value={grid} initialPresentation={presentation?.state} oncell={openCell} oncreate={createFromCell} onperson={(id) => selectOwners([id])} onpage={(value) => navigate({ ...view, groupPage: value })} />
 						{/if}
 					{/if}
 				</div>
@@ -358,7 +390,7 @@
 </div>
 
 {#if detail}
-	<TimesheetWorklogDetail {...detail} refresh={detailRefresh} suspended={detailSuspended} onaction={startWorklog} fallbackFocus={() => heading?.focus()} onclose={() => detail = null} onaccesschanged={accessChanged} />
+	<TimesheetWorklogDetail {...detail} refresh={detailRefresh} suspended={detailSuspended} onaction={startWorklog} fallbackFocus={() => (findFocus(detail?.returnFocus ?? null) ?? heading)?.focus()} onclose={() => detail = null} onaccesschanged={accessChanged} />
 {/if}
 
 {#if operation && authState.user}

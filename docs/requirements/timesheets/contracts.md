@@ -245,8 +245,9 @@ l'accettazione integrata restano EP-06.
 
 Il calendario usa settimana/mese, precedente/successivo/corrente e il `today`
 del riferimento, senza preset analytics. Cambiare settimana/mese usa la data
-iniziale del periodo visualizzato come ancora. La griglia usa ore/minuti esatti,
-non conversioni in giorni da 480 minuti. Celle issue/giorno con contributi aprono
+iniziale del periodo visualizzato come ancora. Le celle di dettaglio delle issue usano ore decimali con due decimali fissi localizzati; totali e subtotali
+usano sempre giorni da 480 minuti, con due decimali fissi localizzati.
+I valori API e i calcoli restano in minuti esatti. Celle issue/giorno con contributi aprono
 il dettaglio; i subtotali non sono registrazioni modificabili.
 
 Il ritorno dall'issue usa lo stato della voce di cronologia SvelteKit, associato

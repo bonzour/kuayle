@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Calendar } from '$lib/components/ui/calendar';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
-	import { CalendarDate } from '@internationalized/date';
-	import type { DateValue } from '@internationalized/date';
+	import { parseCalendarDate, serializeCalendarDate, formatCalendarDate, calendarDateFromApi } from '$lib/utils/calendar-date';
+	import { today, getLocalTimeZone, type DateValue } from '@internationalized/date';
 	import { CalendarDays, X } from 'lucide-svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -22,17 +22,12 @@
 	const effectiveClearLabel = $derived(clearLabel ?? m['sharedComponents.due_date_picker.no_due_date']());
 
 	const presets = $derived([
-		{ label: m['sharedComponents.due_date_picker.today'](), value: formatLocalDate(new Date()) },
-		{ label: m['sharedComponents.due_date_picker.tomorrow'](), value: formatLocalDate(addDays(new Date(), 1)) },
-		{ label: m['sharedComponents.due_date_picker.next_week'](), value: formatLocalDate(addDays(new Date(), 7)) },
+		{ label: m['sharedComponents.due_date_picker.today'](), value: today(getLocalTimeZone()).toString() },
+		{ label: m['sharedComponents.due_date_picker.tomorrow'](), value: today(getLocalTimeZone()).add({ days: 1 }).toString() },
+		{ label: m['sharedComponents.due_date_picker.next_week'](), value: today(getLocalTimeZone()).add({ days: 7 }).toString() },
 	]);
 	const recentDueDates = $derived(preferencesState.recentDueDates.filter((date) => !presets.some((preset) => preset.value === date)));
-	const calendarValue = $derived.by(() => {
-		if (!value) return undefined;
-		const [year, month, day] = value.split('-').map(Number);
-		if (!year || !month || !day) return undefined;
-		return new CalendarDate(year, month, day);
-	});
+	const calendarValue = $derived(parseCalendarDate(calendarDateFromApi(value)));
 
 	async function selectDate(date: string | null) {
 		await onchange(date);
@@ -42,26 +37,10 @@
 
 	function handleCalendarSelect(dateValue: DateValue | undefined) {
 		if (!dateValue) return;
-		void selectDate(`${dateValue.year}-${String(dateValue.month).padStart(2, '0')}-${String(dateValue.day).padStart(2, '0')}`);
+		void selectDate(serializeCalendarDate(dateValue));
 	}
 
-	function addDays(date: Date, days: number) {
-		const next = new Date(date);
-		next.setDate(next.getDate() + days);
-		return next;
-	}
-
-	function formatLocalDate(date: Date) {
-		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-	}
-
-	function formatDisplayDate(date: string) {
-		return new Date(`${date}T00:00:00`).toLocaleDateString(getLocale(), {
-			month: 'short',
-			day: 'numeric',
-			year: 'numeric'
-		});
-	}
+	function formatDisplayDate(date: string) { return formatCalendarDate(date, getLocale()); }
 </script>
 
 <div class="mx-auto grid w-fit gap-2 p-2 sm:grid-cols-[10.75rem_max-content]">
@@ -73,7 +52,7 @@
 					{#each recentDueDates as date (date)}
 						<button
 							type="button"
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+							class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 							onclick={() => selectDate(date)}
 						>
 							<CalendarDays size={13} />
@@ -90,7 +69,7 @@
 				{#each presets as preset (preset.label)}
 					<button
 						type="button"
-						class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						class="flex min-h-8 w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 						onclick={() => selectDate(preset.value)}
 					>
 						<span>{preset.label}</span>
@@ -100,7 +79,7 @@
 
 				<button
 					type="button"
-					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					onclick={() => selectDate(null)}
 				>
 					<X size={13} />

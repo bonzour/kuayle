@@ -322,7 +322,7 @@
 
 		<!-- Project info -->
 		<div class="border-b border-[var(--app-border)] px-6 py-4">
-			<div class="flex items-center gap-4 text-xs text-[var(--color-text-tertiary)]">
+			<div class="flex flex-wrap items-center gap-4 text-xs text-[var(--color-text-tertiary)]">
 				<div class="flex items-center gap-1.5">
 					<Calendar size={12} />
 					<span>{m['projects.start_date']()}</span>

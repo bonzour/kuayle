@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
-	import * as Dialog from '$lib/components/ui/dialog';
-	import { Button } from '$lib/components/ui/button';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
-	import ErrorState from '$lib/components/shared/ErrorState.svelte';
+	import IssueSearchDialog from '$lib/features/issues/IssueSearchDialog.svelte';
+	import FormSelect from '$lib/components/shared/FormSelect.svelte';
+	import ResultPagination from '$lib/components/shared/ResultPagination.svelte';
 	import EffortWorklogDialog from '$lib/features/issues/EffortWorklogDialog.svelte';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { getTimesheetOptions, getTimesheetIssues } from '$lib/api/timesheets';
@@ -114,46 +113,15 @@
 		workspaceLabel={`${editor.workspace.name} (${editor.workspace.slug})`}
 		{returnFocus} {onclose} onsaved={() => onsaved(editor!.workspace.slug)} {onaccesschanged} />
 {:else}
-	<Dialog.Root open={true} onOpenChange={(open) => { if (!open && !preparing) onclose(); }}>
-		<Dialog.Content showCloseButton={!preparing} class="max-h-[80vh] grid-rows-[auto_minmax(0,1fr)_auto]"
-			onEscapeKeydown={(event) => { if (preparing) event.preventDefault(); }}
-			onInteractOutside={(event) => { if (preparing) event.preventDefault(); }}
-			onCloseAutoFocus={(event) => { event.preventDefault(); if (!editor) returnFocus(); }}>
-			<Dialog.Header>
-				<Dialog.Title>{m['efforts.worklogs.create']()}</Dialog.Title>
-				<Dialog.Description>{m['timesheet.choose_destination']()}</Dialog.Description>
-			</Dialog.Header>
-			<div class="min-h-0 space-y-3 overflow-y-auto">
-				{#if !target.identifier}
-					<label for={`${id}-workspace`} class="block text-sm">{m['timesheet.workspaces']()}</label>
-					<select id={`${id}-workspace`} value={workspaceId} disabled={preparing} onchange={(event) => changeWorkspace(event.currentTarget.value)} class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] p-2">
-						<option value="">{m['timesheet.choose_workspace']()}</option>
-						{#each workspaces as workspace}<option value={workspace.id}>{workspace.name} ({workspace.slug})</option>{/each}
-					</select>
-					{#if workspaceId}
-						<label for={`${id}-search`} class="block text-sm">{m['timesheet.search_issues']()}</label>
-						<input id={`${id}-search`} type="search" value={search} disabled={preparing} oninput={(event) => { search = event.currentTarget.value; page = 1; }} class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] p-2" />
-					{/if}
-				{/if}
-				{#if error}<ErrorState message={error} retryLabel={m['timesheet.retry']()} onretry={() => target.identifier ? initialize() : workspaceId ? loadIssues() : initialize()} />
-				{:else if loading || preparing}<LoadingState />
-				{:else if issues}
-					{#if issues.data.length === 0}<p class="text-sm">{m['timesheet.no_results']()}</p>{/if}
-					<ul class="space-y-1" aria-label={m['timesheet.search_issues']()}>
-						{#each issues.data as issue (issue.id)}
-							<li><button type="button" class="w-full rounded-md border border-[var(--app-border)] p-2 text-left hover:bg-[var(--color-bg-secondary)] focus-visible:outline-2 focus-visible:outline-ring" onclick={() => prepare(issue.identifier)}><span class="block text-sm">{issue.identifier} · {issue.title}</span><span class="text-xs text-[var(--color-text-secondary)]">{issue.team.name}</span></button></li>
-						{/each}
-					</ul>
-					{#if issues.total_count > issues.per_page}
-						<div class="flex flex-wrap items-center justify-end gap-2">
-							<span class="text-xs">{m['timesheet.page']({ page, pages: Math.ceil(issues.total_count / issues.per_page) })}</span>
-							<Button variant="outline" size="sm" disabled={page <= 1} onclick={() => page--}>{m['timesheet.previous']()}</Button>
-							<Button variant="outline" size="sm" disabled={!issues.has_more} onclick={() => page++}>{m['timesheet.next']()}</Button>
-						</div>
-					{/if}
-				{:else if !workspaces.length}<p class="text-sm">{m['timesheet.read_only']()}</p>{/if}
-			</div>
-			<Dialog.Footer><Button variant="outline" disabled={preparing} onclick={onclose}>{m['common.cancel']()}</Button></Dialog.Footer>
-		</Dialog.Content>
-	</Dialog.Root>
+	<IssueSearchDialog title={m['efforts.worklogs.create']()} description={m['timesheet.choose_destination']()} query={search} onquery={(value) => { search = value; page = 1; }}
+		items={issues?.data.map(issue => ({ ...issue, subtitle: issue.team.name })) ?? []} onselect={(id) => { const issue = issues?.data.find(issue => issue.id === id); if (issue) void prepare(issue.identifier); }}
+		loading={loading || preparing} error={error || (!loading && !workspaces.length ? m['timesheet.read_only']() : '')} disabled={preparing} searchable={!!workspaceId && !target.identifier}
+		onretry={() => target.identifier ? initialize() : workspaceId ? loadIssues() : initialize()} {onclose} returnFocus={() => { if (!editor) returnFocus(); }}>
+		{#snippet context()}
+			{#if !target.identifier}<FormSelect id={`${id}-workspace`} label={m['timesheet.workspaces']()} value={workspaceId} options={workspaces.map(workspace => ({ id: workspace.id, name: `${workspace.name} (${workspace.slug})` }))} placeholder={m['timesheet.choose_workspace']()} disabled={preparing} onchange={changeWorkspace} />{/if}
+		{/snippet}
+		{#snippet footer()}
+			{#if issues}<ResultPagination {page} perPage={issues.per_page} total={issues.total_count} label={m['controls.issue_search']()} onchange={(value) => page = value} />{/if}
+		{/snippet}
+	</IssueSearchDialog>
 {/if}

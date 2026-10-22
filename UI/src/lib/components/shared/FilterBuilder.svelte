@@ -1,4 +1,5 @@
 <script lang="ts">
+	import MultiSelect from './MultiSelect.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as HoverCard from '$lib/components/ui/hover-card';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -100,18 +101,6 @@
 
 	function statusValueMatches(status: { id: string; slug?: string }, value: string): boolean {
 		return status.id === value || status.slug === value;
-	}
-
-	function toggleStatus(value: string) {
-		const current = getStatusValues();
-		const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
-		updateFilter('status', next.length > 0 ? next.join(',') : undefined);
-	}
-
-	function togglePriority(value: string) {
-		const current = getPriorityValues();
-		const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
-		updateFilter('priority', next.length > 0 ? next.join(',') : undefined);
 	}
 
 	function updateFilter(key: string, value: string | undefined) {
@@ -378,65 +367,22 @@
 		{/each}
 	{:else}
 		{#if visibleFilters.has('status')}
-			<Popover.Root bind:open={statusOpen} onOpenChange={(open) => handlePopoverClose('status', open)}>
-				<Popover.Trigger>
-					<button class={chipClass(!!filters.status)}>
-						<CircleDashed size={12} />
-						{getStatusChipLabel()}
-					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-44 p-1" align="start">
-					{#each teamStatusesState.statusOrder as ts}
-						<button
-							onclick={() => toggleStatus(ts.id)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-						>
-							<Checkbox checked={getStatusValues().includes(ts.id)} />
-							<IssueStatusIcon category={ts.category} color={ts.color} />
-							{ts.name}
-						</button>
-					{/each}
-					<Separator class="my-1" />
-					<button
-						onclick={() => removeFilter('status')}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-					>
-						<X size={12} />
-						{m['sharedComponents.filter_builder.remove_filter']()}
-					</button>
-				</Popover.Content>
-			</Popover.Root>
+			<div class="w-48 shrink-0">
+			<MultiSelect label={m['sharedComponents.filter_builder.status']()} bind:open={statusOpen} value={getStatusValues()} emptyLabel={m['sharedComponents.filter_builder.status']()}
+				options={[...getStatusValues().filter(value => !teamStatusesState.statusOrder.some(status => status.id === value)).map(id => ({ id, name: getStatusByValue(id)?.name ?? getStatusLabel(id as IssueStatus) ?? id })), ...teamStatusesState.statusOrder.map(status => ({ id: status.id, name: status.name }))]}
+				onchange={(values) => updateFilter('status', values.length ? values.join(',') : undefined)} onOpenChange={(open) => handlePopoverClose('status', open)} onremove={() => removeFilter('status')}>
+				{#snippet icon(id)}{@const status = getStatusByValue(id)}<IssueStatusIcon status={id} category={status?.category} color={status?.color} size={14} />{/snippet}
+			</MultiSelect>
+			</div>
 		{/if}
-
 		{#if visibleFilters.has('priority')}
-			<Popover.Root bind:open={priorityOpen} onOpenChange={(open) => handlePopoverClose('priority', open)}>
-				<Popover.Trigger>
-					<button class={chipClass(!!filters.priority)}>
-						<Signal size={12} />
-						{getPriorityChipLabel()}
-					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-44 p-1" align="start">
-					{#each Object.entries(getPriorityLabels()) as [value, label]}
-						<button
-							onclick={() => togglePriority(value)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-						>
-							<Checkbox checked={getPriorityValues().includes(value)} />
-							<IssuePriorityIcon priority={Number(value) as IssuePriority} />
-							{label}
-						</button>
-					{/each}
-					<Separator class="my-1" />
-					<button
-						onclick={() => removeFilter('priority')}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-					>
-						<X size={12} />
-						{m['sharedComponents.filter_builder.remove_filter']()}
-					</button>
-				</Popover.Content>
-			</Popover.Root>
+			<div class="w-48 shrink-0">
+			<MultiSelect label={m['sharedComponents.filter_builder.priority']()} bind:open={priorityOpen} value={getPriorityValues()} emptyLabel={m['sharedComponents.filter_builder.priority']()}
+				options={Object.entries(getPriorityLabels()).map(([id, name]) => ({ id, name }))}
+				onchange={(values) => updateFilter('priority', values.length ? values.join(',') : undefined)} onOpenChange={(open) => handlePopoverClose('priority', open)} onremove={() => removeFilter('priority')}>
+				{#snippet icon(id)}<IssuePriorityIcon priority={Number(id) as IssuePriority} size={14} />{/snippet}
+			</MultiSelect>
+			</div>
 		{/if}
 
 		{#if visibleFilters.has('assignee')}

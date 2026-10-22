@@ -1,98 +1,25 @@
 <script lang="ts">
-	import * as Popover from '$lib/components/ui/popover';
 	import { Calendar } from '$lib/components/ui/calendar';
+	import DatePopover from './DatePopover.svelte';
 	import DueDatePickerPanel from './DueDatePickerPanel.svelte';
-	import { CalendarDate } from '@internationalized/date';
-	import type { DateValue } from '@internationalized/date';
-	import { CalendarIcon, X } from 'lucide-svelte';
+	import { parseCalendarDate, serializeCalendarDate, formatCalendarDate, calendarDateFromApi } from '$lib/utils/calendar-date';
 	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-
-	let {
-		value = null,
-		onchange,
-		placeholder = 'Set date',
-		colorClass = '',
-		dueDateMode = false
-	}: {
-		value: string | null;
-		onchange: (date: string | null) => void;
-		placeholder?: string;
-		colorClass?: string;
-		dueDateMode?: boolean;
+	import { getLocale } from '$lib/paraglide/runtime.js';
+	let { value = null, onchange, placeholder, colorClass = '', dueDateMode = false, disabled = false, allowClear = true }: {
+		value: string | null; onchange: (date: string | null) => void; placeholder?: string;
+		colorClass?: string; dueDateMode?: boolean; disabled?: boolean; allowClear?: boolean;
 	} = $props();
-
 	let open = $state(false);
-
-	const displayDate = $derived.by(() => {
-		if (!value) return null;
-		try {
-			return new Date(value).toLocaleDateString(getLocale(), {
-				month: 'short',
-				day: 'numeric',
-				year: 'numeric'
-			});
-		} catch {
-			return null;
-		}
-	});
-
-	const calendarValue = $derived.by(() => {
-		if (!value) return undefined;
-		try {
-			const d = new Date(value);
-			return new CalendarDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
-		} catch {
-			return undefined;
-		}
-	});
-
-	function handleSelect(dateValue: DateValue | undefined) {
-		if (dateValue) {
-			const date = `${dateValue.year}-${String(dateValue.month).padStart(2, '0')}-${String(dateValue.day).padStart(2, '0')}`;
-			onchange(date);
-			open = false;
-		}
-	}
-
-	function handleClear(e: MouseEvent) {
-		e.stopPropagation();
-		onchange(null);
-		open = false;
-	}
+	const label = $derived(placeholder ?? m['controls.select_date']());
+	const dateValue = $derived(calendarDateFromApi(value));
 </script>
 
-<Popover.Root bind:open>
-	<Popover.Trigger>
-		<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs hover:bg-[var(--color-bg-hover)] {displayDate && colorClass ? colorClass : 'text-[var(--color-text-secondary)]'}">
-			<CalendarIcon size={12} />
-			{#if displayDate}
-				{displayDate}
-				<span
-					onclick={handleClear}
-					onkeydown={(e) => { if (e.key === 'Enter') handleClear(e as unknown as MouseEvent); }}
-					role="button"
-					tabindex={0}
-					class="ml-1 inline-flex rounded p-0.5 hover:bg-[var(--color-bg-hover)]"
-				>
-					<X size={10} />
-				</span>
-			{:else}
-				{placeholder}
-			{/if}
-		</button>
-	</Popover.Trigger>
-	<Popover.Content class="w-auto p-0" align="start">
+<div class="min-w-0">
+	<DatePopover bind:open {label} {colorClass} text={dateValue ? formatCalendarDate(dateValue, getLocale()) : label} {disabled} onclear={allowClear && value ? () => onchange(null) : undefined}>
 		{#if dueDateMode}
-			<DueDatePickerPanel {value} {onchange} close={() => (open = false)} />
+			<DueDatePickerPanel value={dateValue ?? null} {onchange} close={() => open = false} />
 		{:else}
-			{#key value}
-				<Calendar
-					type="single"
-					value={calendarValue}
-					onValueChange={handleSelect}
-				/>
-			{/key}
+			<Calendar type="single" value={parseCalendarDate(dateValue)} placeholder={parseCalendarDate(dateValue)} onValueChange={(date) => { if (date) { onchange(serializeCalendarDate(date)); open = false; } }} />
 		{/if}
-	</Popover.Content>
-</Popover.Root>
+	</DatePopover>
+</div>

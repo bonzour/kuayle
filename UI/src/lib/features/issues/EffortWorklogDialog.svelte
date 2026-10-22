@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
+	import { onMount, untrack, tick } from 'svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { createEffortWorklog, updateEffortWorklog, deleteEffortWorklog, getEffortSettings, listEffortWorklogOwners, listEffortWorklogs } from '$lib/api/efforts';
@@ -7,6 +7,10 @@
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import type { CreateEffortWorklogRequest, UpdateEffortWorklogRequest, DeleteEffortWorklogRequest, EffortUser, EffortWorklog } from '$lib/types/efforts';
 	import { m } from '$lib/paraglide/messages.js';
+	import DateInput from '$lib/components/shared/DateInput.svelte';
+	import FormSelect from '$lib/components/shared/FormSelect.svelte';
+	import { formatTimesheetMinutes, formatTimesheetDate } from '$lib/features/timesheets/period';
+	import { getLocale } from '$lib/paraglide/runtime.js';
 	import EffortDurationInput from './EffortDurationInput.svelte';
 	import { formatEffortMinutes } from './effort-duration';
 	import { validateWorklogDraft, worklogPeriodDays } from './effort-worklog';
@@ -116,6 +120,9 @@
 		}
 	}
 
+	let form: HTMLFormElement;
+	async function focusError() { await tick(); const target = form?.querySelector<HTMLElement>('[aria-invalid="true"] [role="spinbutton"], input[aria-invalid="true"], button[aria-invalid="true"], textarea[aria-invalid="true"], [data-form-error]'); target?.focus(); }
+
 	async function save() {
 		if (busy || !ready || conflict || (!attempt && (!canWrite || !enabled || denied))) return;
 		if (!attempt) {
@@ -130,7 +137,7 @@
 				if (!valid.durationValid) errors.duration_minutes = m['efforts.worklogs.invalid_duration']();
 				if (!valid.descriptionValid) errors.description = m['efforts.worklogs.invalid_description']();
 				if (mode === 'create' && admin && !owners.some(user => user.id === owner)) errors.owner_user_id = m['efforts.worklogs.invalid_owner']();
-				if (Object.keys(errors).length) return;
+				if (Object.keys(errors).length) { void focusError(); return; }
 				const request = { ...mutation, work_date: date, duration_minutes: valid.minutes!, description: description || null };
 				attempt = mode === 'create' ? { mode, request: { ...request, owner_user_id: owner, end_date: endDate, skip_weekends: skipWeekends } } : { mode, request };
 			}
@@ -176,7 +183,7 @@
 				onaccesschanged?.();
 			} else error = attempt ? m['efforts.planning.retry_error']() : m['efforts.worklogs.save_error']();
 		} finally {
-			if (current()) busy = false;
+			if (current()) { busy = false; if (error || Object.keys(errors).length) void focusError(); }
 		}
 	}
 </script>
@@ -190,35 +197,22 @@
 			<Dialog.Title>{title}</Dialog.Title>
 			<Dialog.Description>{mode === 'delete' ? m['efforts.worklogs.delete_description']() : m['efforts.worklogs.form_description']()}</Dialog.Description>
 		</Dialog.Header>
-		<form class="space-y-3" novalidate onsubmit={(event) => { event.preventDefault(); void save(); }}>
-			{#if workspaceLabel}
-				<p class="break-words text-xs text-[var(--color-text-secondary)]">{workspaceLabel} · {identifier}{#if today}{' · '}{timezone} · {m['timesheet.today']()}: {today}{/if}</p>
+		<form bind:this={form} aria-busy={busy || !ready} class="space-y-3" novalidate onsubmit={(event) => { event.preventDefault(); void save(); }}>
+			{#if workspaceLabel || identifier}
+				<p class="break-words text-xs text-[var(--color-text-secondary)]">{workspaceLabel || slug} · {identifier}{#if today}{' · '}{timezone} · {m['timesheet.today']()}: {formatTimesheetDate(today, getLocale(), { year: 'numeric' })}{/if}</p>
 			{/if}
 			{#if ownerFeedback}<p role="status" class="text-xs text-[var(--color-text-secondary)]">{ownerFeedback}</p>{/if}
 			{#if mode !== 'delete'}
-				<div class="space-y-1">
-					<label for={`${id}-owner`} class="text-xs font-medium">{m['efforts.worklogs.owner']()}</label>
-					{#if mode === 'create' && admin}
-						<select id={`${id}-owner`} bind:value={owner} disabled={locked} aria-invalid={!!errors.owner_user_id} aria-describedby={errors.owner_user_id ? `${id}-owner-error` : undefined} class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-2">
-							{#each owners as user}<option value={user.id}>{name(user)}</option>{/each}
-						</select>
-					{:else}<input id={`${id}-owner`} readonly value={currentWorklog ? name(currentWorklog.owner) : userName} class="w-full bg-transparent py-1" />{/if}
-					{#if errors.owner_user_id}<p id={`${id}-owner-error`} role="alert" class="text-xs text-destructive">{errors.owner_user_id}</p>{/if}
-				</div>
-				<div class="grid gap-3 {mode === 'create' ? 'grid-cols-2' : ''}">
-				<div class="space-y-1">
-					<label for={`${id}-date`} class="text-xs font-medium">{mode === 'create' ? m['efforts.worklogs.from']() : m['efforts.worklogs.date']()}</label>
-					<input id={`${id}-date`} type="date" bind:value={date} max={today || undefined} min="0001-01-01" disabled={locked} aria-invalid={!!errors.work_date} aria-describedby={errors.work_date ? `${id}-date-error` : undefined} class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-2" />
-					{#if errors.work_date}<p id={`${id}-date-error`} role="alert" class="text-xs text-destructive">{errors.work_date}</p>{/if}
-				</div>
-				{#if mode === 'create'}
-					<div class="space-y-1">
-						<label for={`${id}-end`} class="text-xs font-medium">{m['efforts.worklogs.to']()}</label>
-						<input id={`${id}-end`} type="date" bind:value={endDate} min={date || '0001-01-01'} max={today || undefined} disabled={locked} aria-invalid={!!errors.end_date} aria-describedby={errors.end_date ? `${id}-end-error` : undefined} class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-2" />
-						{#if errors.end_date}<p id={`${id}-end-error`} role="alert" class="text-xs text-destructive">{errors.end_date}</p>{/if}
-					</div>
+				{#if mode === 'create' && admin}
+					<FormSelect id={`${id}-owner`} label={m['efforts.worklogs.owner']()} value={owner} options={owners.map(user => ({ id: user.id, name: name(user) }))} onchange={(value) => owner = value} disabled={locked} error={errors.owner_user_id} />
+				{:else}
+					<div class="space-y-1"><label for={`${id}-owner`} class="text-xs font-medium">{m['efforts.worklogs.owner']()}</label><input id={`${id}-owner`} readonly value={currentWorklog ? name(currentWorklog.owner) : userName} class="w-full bg-transparent py-1" /></div>
 				{/if}
+				<div class="grid gap-3 {mode === 'create' ? 'sm:grid-cols-2' : ''}">
+					<DateInput id={`${id}-date`} label={mode === 'create' ? m['efforts.worklogs.from']() : m['efforts.worklogs.date']()} value={date} onchange={(value) => date = value} min="0001-01-01" max={today} disabled={locked} error={errors.work_date} />
+					{#if mode === 'create'}<DateInput id={`${id}-end`} label={m['efforts.worklogs.to']()} value={endDate} onchange={(value) => endDate = value} min={date || '0001-01-01'} max={today} disabled={locked} error={errors.end_date} />{/if}
 				</div>
+				{#if mode === 'create'}<p class="text-xs text-muted-foreground">{m['controls.period_help']()}</p>{/if}
 				{#if mode === 'create'}
 					<label class="flex items-center gap-2 text-xs">
 						<input type="checkbox" bind:checked={skipWeekends} disabled={locked} />{m['efforts.worklogs.skip_weekends']()}
@@ -228,27 +222,29 @@
 					<p class="text-xs font-medium">{mode === 'create' ? m['efforts.worklogs.daily_duration']() : m['efforts.worklogs.duration']()}</p>
 					<EffortDurationInput bind:value={duration} label={m['efforts.worklogs.duration']()} disabled={locked} error={errors.duration_minutes ?? ''} />
 				</div>
-				{#if mode === 'create' && periodDays && dailyMinutes !== null && dailyMinutes > 0 && dailyMinutes <= 1440}
-					<p role="status" class="text-xs text-[var(--color-text-secondary)]">{m['efforts.worklogs.period_summary']({ count: periodDays, total: formatEffortMinutes(dailyMinutes * periodDays) })}</p>
-				{/if}
+				<p class="text-xs text-muted-foreground">{m['controls.duration_help']()}</p>
+
 				<div class="space-y-1">
 					<label for={`${id}-description`} class="text-xs font-medium">{m['efforts.worklogs.description']()}</label>
 					<textarea id={`${id}-description`} bind:value={description} rows="4" disabled={locked} aria-invalid={!!errors.description} aria-describedby={`${id}-count${errors.description ? ` ${id}-description-error` : ''}`} class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-2"></textarea>
 					<p id={`${id}-count`} class="text-xs text-[var(--color-text-tertiary)]">{Array.from(description).length} / 2000</p>
 					{#if errors.description}<p id={`${id}-description-error`} role="alert" class="text-xs text-destructive">{errors.description}</p>{/if}
 				</div>
+				{#if mode === 'create' && periodDays && dailyMinutes !== null && dailyMinutes > 0 && dailyMinutes <= 1440}
+					<p role="status" class="text-xs text-[var(--color-text-secondary)]">{m['controls.worklog_summary']({ count: periodDays, daily: formatTimesheetMinutes(dailyMinutes), total: formatTimesheetMinutes(dailyMinutes * periodDays) })}</p>
+				{/if}
 			{:else if currentWorklog}
-				<p>{currentWorklog.work_date} · {name(currentWorklog.owner)} · {formatEffortMinutes(currentWorklog.duration_minutes)}</p>
+				<p>{formatTimesheetDate(currentWorklog.work_date, getLocale(), { year: 'numeric' })} · {name(currentWorklog.owner)} · {formatEffortMinutes(currentWorklog.duration_minutes)}</p>
 				{#if currentWorklog.description}<p class="whitespace-pre-wrap break-words">{currentWorklog.description}</p>{/if}
 			{/if}
 			{#if !ready && !error}<p role="status">{m['settings.efforts.loading']()}</p>{/if}
-			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
+			{#if error}<p data-form-error tabindex="-1" role="alert" class="text-sm text-destructive">{error}</p>{/if}
 			{#if conflict || denied || (error && (!ready || !enabled))}
 				<Button type="button" size="sm" variant="outline" disabled={busy || !!attempt} onclick={realign}>{m['settings.efforts.realign']()}</Button>
 			{/if}
 			<Dialog.Footer>
 				<Button type="button" variant="outline" disabled={busy || !!attempt} onclick={onclose}>{m['common.cancel']()}</Button>
-				<Button type="submit" variant={mode === 'delete' ? 'destructive' : 'default'} disabled={busy || !ready || conflict || (!attempt && (!canWrite || !enabled || denied))}>
+				<Button type="submit" class="min-h-11 sm:min-h-8" variant={mode === 'delete' ? 'destructive' : 'default'} disabled={busy || !ready || conflict || (!attempt && (!canWrite || !enabled || denied))}>
 					{attempt ? m['settings.efforts.retry']() : mode === 'delete' ? m['common.delete']() : m['common.save']()}
 				</Button>
 			</Dialog.Footer>

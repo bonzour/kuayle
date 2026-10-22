@@ -166,7 +166,7 @@ async function fixture(page: Page, admin = true, theme: 'light' | 'dark' = 'dark
 		return route.fulfill({ json: [] });
 	});
 	await page.goto(entry);
-	await expect(page.getByRole('button', { name: locale === 'it' ? 'Aggiorna' : 'Refresh', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: ({ en: 'Refresh', it: 'Aggiorna', 'zh-CN': '刷新', 'zh-TW': '重新整理' }[locale] ?? 'Refresh'), exact: true })).toBeEnabled();
 	await expect(page.locator('html')).toHaveClass(new RegExp(`\\b${theme}\\b`));
 	return state;
 }
@@ -178,6 +178,8 @@ async function choose(page: Page, label: string, name: string) {
 		await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
 		return;
 	}
+	const filterButton = page.getByRole('button', { name: 'Filters', exact: true });
+	if (await filterButton.isVisible() && await filterButton.getAttribute('aria-expanded') === 'false') await filterButton.click();
 	await selector(page, label).click();
 	await page.getByRole('option', { name, exact: true }).click();
 	await page.keyboard.press('Escape');
@@ -198,7 +200,7 @@ test('sidebar, initial cross-workspace scope and local capabilities', async ({ p
 	await choose(page, 'View', 'By person');
 	await expect(scope(page)).toContainText('Workspace A (a)');
 	await expect(scope(page)).not.toContainText('Workspace B (b)');
-	await expect(page.getByRole('status')).toContainText('scope was updated');
+	await expect(page.getByRole('status').filter({ hasText: 'scope was updated' })).toContainText('scope was updated');
 	await choose(page, 'View', 'My timesheet');
 	await expect(scope(page)).not.toContainText('Workspace B (b)');
 });
@@ -213,7 +215,7 @@ test('multiple filters retain namesakes and remove only incompatible children', 
 	const last = state.requests.at(-1)!;
 	expect(last.searchParams.get('team_ids')).toBe('team-0');
 	expect(last.searchParams.get('project_ids')).toBe('none');
-	await expect(page.getByRole('status')).toContainText('Filters outside');
+	await expect(page.getByRole('status').filter({ hasText: 'Filters outside' })).toContainText('Filters outside');
 	await choose(page, 'Workspaces', 'Workspace A (a)');
 	await expect(page.getByText('No workspace is selected. Select a workspace to continue.')).toBeVisible();
 	expect(state.requests.at(-1)!.searchParams.get('workspace_ids')).toBe('');
@@ -236,7 +238,7 @@ test('revoked IDs are removed before rereading, without broadening an empty sele
 	await choose(page, 'Teams', 'Same team · Workspace B (b)');
 	state.allowed = [a];
 	await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-	await expect(page.getByRole('status')).toContainText('current access');
+	await expect(page.getByRole('status').filter({ hasText: 'current access' })).toContainText('current access');
 	await expect(page.getByText('No workspace is selected. Select a workspace to continue.')).toBeVisible();
 	await expect(scope(page)).toHaveCount(0);
 	expect(state.requests.at(-1)!.searchParams.get('workspace_ids')).toBe('');
@@ -251,7 +253,7 @@ test('a downgrade removes administrative modes and preserves the selected worksp
 	await expect(page.getByRole('tab', { selected: true })).toContainText('My timesheet');
 	await expect(scope(page)).toContainText('Workspace A (a)');
 	await expect(scope(page)).not.toContainText('Workspace B (b)');
-	await expect(page.getByRole('status')).toContainText('current access');
+	await expect(page.getByRole('status').filter({ hasText: 'current access' })).toContainText('current access');
 });
 
 test('failed reads show an error and retry; old responses cannot restore the old scope', async ({ page }) => {
@@ -270,6 +272,7 @@ test('failed reads show an error and retry; old responses cannot restore the old
 	await selector(page, 'Workspaces').click();
 	await page.getByRole('option', { name: 'Workspace A (a)', exact: true }).click();
 	await page.keyboard.press('Escape');
+	await expect(selector(page, 'Workspaces')).toHaveAttribute('aria-expanded', 'false');
 	await waiting;
 	await choose(page, 'Workspaces', 'Workspace B (b)');
 	// Multiple selection now contains A+B. The delayed A-only response must not win.
@@ -280,13 +283,14 @@ test('failed reads show an error and retry; old responses cannot restore the old
 	await staleResponse;
 	await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 	await expect(page).toHaveURL(currentUrl);
-	await expect.poll(() => selector(page, 'Workspaces').textContent()).toContain('2 selected');
+	await expect.poll(() => selector(page, 'Workspaces').textContent()).toContain('Workspace A (a) +1');
 	await expect(scope(page)).toContainText('Workspace B (b)');
 });
 
 test('filters work with keyboard and fit a narrow viewport', async ({ page }, testInfo) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await fixture(page, true, 'light');
+	await page.getByRole('button', { name: 'Filters', exact: true }).click();
 	const teams = selector(page, 'Teams');
 	await teams.focus();
 	await page.keyboard.press('Enter');
@@ -304,17 +308,25 @@ test('personal grid keeps complete totals, hierarchy and distinct registrations'
 	await fixture(page);
 	const table = page.getByRole('table', { name: 'Timesheet grid' });
 	await expect(table.locator('thead th')).toHaveCount(9);
-	await expect(table.locator('tfoot')).toContainText('2h 51m');
+	await expect(scope(page)).toContainText('Filtered period total: 0.36d');
+	await expect(table.getByRole('row').filter({ has: page.getByRole('button', { name: 'Workspace A', exact: true }) }).locator('td').last()).toHaveText('0.25d');
+	const issueRow = table.getByRole('row').filter({ has: page.getByRole('link', { name: 'A-1 Work on A-1', exact: true }) });
+	await expect(issueRow.locator('td').last()).toHaveText('0.19d');
+	await expect(issueRow.getByRole('button', { name: 'A-1 · 2026-10-20 · 1.50h', exact: true })).toBeVisible();
+	await expect(table.locator('tfoot td')).toHaveText(['0.00d', '0.36d', '0.00d', '0.00d', '0.00d', '0.00d', '0.00d', '0.36d']);
+	await expect(table.locator('tfoot')).toContainText('0.36d');
 	await expect(table.getByRole('link', { name: 'A-2 Work on A-2' })).toBeVisible();
 	await table.getByRole('button', { name: 'Workspace A', exact: true }).click();
-	await expect(table.getByRole('button', { name: 'A-1 · 2026-10-20 · 1h 30m', exact: true })).toHaveCount(0);
-	await expect(table.locator('tfoot')).toContainText('2h 51m');
+	await expect(table.getByRole('button', { name: 'A-1 · 2026-10-20 · 1.50h', exact: true })).toHaveCount(0);
+	await expect(table.locator('tfoot')).toContainText('0.36d');
 	await table.getByRole('button', { name: 'Workspace A', exact: true }).click();
-	const cell = table.getByRole('button', { name: 'A-1 · 2026-10-20 · 1h 30m', exact: true });
+	const cell = table.getByRole('button', { name: 'A-1 · 2026-10-20 · 1.50h', exact: true });
 	await cell.focus(); await page.keyboard.press('Enter');
 	const dialog = page.getByRole('dialog', { name: 'Worklog details' });
 	await expect(dialog.getByText('2 registrations')).toBeVisible();
 	await expect(dialog.locator('li')).toHaveCount(2);
+	await expect(dialog.getByRole('status')).toContainText('Total: 0.19d');
+	await expect(dialog.locator('li strong')).toHaveText(['1.00h', '0.50h']);
 	await expect(dialog).toContainText('Workspace Admin');
 	await expect(dialog).toContainText('Test User');
 	await expect(dialog).toContainText('Europe/Rome');
@@ -358,10 +370,10 @@ test('all detail pages remain reachable and preserve full totals on mobile', asy
 	const region = page.getByRole('region', { name: 'Timesheet grid' });
 	expect(await region.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true }).click();
+	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true }).click();
 	const dialog = page.getByRole('dialog', { name: 'Worklog details' });
 	await expect(dialog.locator('li')).toHaveCount(50);
-	await expect(dialog.getByRole('status')).toContainText('51m');
+	await expect(dialog.getByRole('status')).toContainText('0.11d');
 	await dialog.getByRole('button', { name: 'Next', exact: true }).click();
 	await expect(dialog.locator('li')).toHaveCount(1);
 	await expect(dialog).toContainText('Registration b-50');
@@ -376,7 +388,7 @@ test('returning from the correct workspace issue restores URL filters and period
 	await choose(page, 'Workspaces', 'Workspace B (b)');
 	await page.getByRole('button', { name: 'Month', exact: true }).click();
 	await expect(page.getByRole('table').locator('thead th')).toHaveCount(33);
-	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true }).click();
+	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true }).click();
 	await page.getByRole('dialog').getByRole('link').first().click();
 	await expect(page).toHaveURL(/\/b\/issue\/B-1$/);
 	await page.goBack();
@@ -393,7 +405,7 @@ test('reference revocation retains the selected period and removes old data', as
 	await expect(page.getByRole('table').locator('thead th')).toHaveCount(33);
 	state.allowed = [b];
 	await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-	await expect(page.getByRole('status')).toContainText('reference workspace changed');
+	await expect(page.getByRole('status').filter({ hasText: 'reference workspace changed' })).toContainText('reference workspace changed');
 	await expect(page.getByRole('table').locator('thead th')).toHaveCount(33);
 	expect(state.gridRequests.at(-1)!.searchParams.get('from')).toBe('2026-10-01');
 	expect(state.gridRequests.at(-1)!.searchParams.get('reference_workspace_id')).toBe(b);
@@ -410,12 +422,14 @@ test('grid and detail errors never appear as zero, and empty states remain disti
 	await page.getByRole('button', { name: 'Try again', exact: true }).click();
 	await expect(page.getByRole('table')).toBeVisible();
 	state.detailFail = true;
-	await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1h 30m', exact: true }).click();
+	await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1.50h', exact: true }).click();
 	const dialog = page.getByRole('dialog');
 	await expect(dialog.getByText('Unable to load Timesheet.')).toBeVisible();
 	state.detailFail = false;
 	await dialog.getByRole('button', { name: 'Try again', exact: true }).click();
 	await expect(dialog.locator('li')).toHaveCount(2);
+	await expect(dialog.getByRole('status')).toContainText('Total: 0.19d');
+	await expect(dialog.locator('li strong')).toHaveText(['1.00h', '0.50h']);
 	await page.keyboard.press('Escape');
 	await choose(page, 'Projects', 'All');
 	await expect(page.getByText('No work matches the selected filters.')).toBeVisible();
@@ -435,22 +449,23 @@ test('late grid/detail responses cannot restore an obsolete selection or dialog'
 	await selector(page, 'Workspaces').click();
 	await page.getByRole('option', { name: 'Workspace A (a)', exact: true }).click();
 	await page.keyboard.press('Escape');
+	await expect(selector(page, 'Workspaces')).toHaveAttribute('aria-expanded', 'false');
 	await waiting;
 	await choose(page, 'Workspaces', 'Workspace B (b)');
-	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h 51m');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('0.36d');
 	const currentUrl = page.url();
 	const stale = page.waitForResponse(res => new URL(res.url()).pathname === '/api/timesheets' && new URL(res.url()).searchParams.get('workspace_ids') === a);
 	release(); await stale;
 	await expect(page).toHaveURL(currentUrl);
-	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h 51m');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('0.36d');
 	let releaseDetail!: () => void;
 	let enteredDetail!: () => void;
 	const waitingDetail = new Promise<void>(resolve => { enteredDetail = resolve; });
 	state.detailDelay = { entered: enteredDetail, wait: new Promise<void>(resolve => { releaseDetail = resolve; }) };
-	await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1h 30m', exact: true }).click();
+	await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1.50h', exact: true }).click();
 	await waitingDetail;
 	await page.keyboard.press('Escape');
-	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true }).click();
+	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true }).click();
 	await expect(page.getByRole('dialog')).toContainText('Registration b-0');
 	const staleDetail = page.waitForResponse(res => new URL(res.url()).pathname === '/api/timesheets/worklogs' && new URL(res.url()).searchParams.get('issue_id') === 'issue-a');
 	releaseDetail(); await staleDetail;
@@ -462,7 +477,7 @@ test('workspace pagination retains full totals', async ({ page }) => {
 	const state = await fixture(page, true, 'dark', '2026-10-20', 50);
 	await page.getByRole('button', { name: 'Next', exact: true }).click();
 	await expect(page.getByText('Page 2 of 2', { exact: true })).toBeVisible();
-	await expect(page.getByRole('table').locator('tfoot')).toContainText('3h 41m');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('0.46d');
 	expect(state.gridRequests.at(-1)!.searchParams.get('page')).toBe('2');
 	await page.getByRole('button', { name: 'Previous', exact: true }).click();
 	await expect(page.getByText('Page 1 of 2', { exact: true })).toBeVisible();
@@ -472,6 +487,10 @@ test('the initial/current week comes from server today even across the Sunday bo
 	const state = await fixture(page, false, 'dark', '2026-10-26');
 	await expect(page.getByText('No work recorded in this period.')).toBeVisible();
 	expect(state.gridRequests[0].searchParams.get('from')).toBe('2026-10-26');
+	await page.getByRole('button', { name: 'Select period' }).click();
+	await expect(page.locator('[data-bits-day][data-today]')).toHaveText('26');
+	await expect(page.locator('[data-bits-day][aria-current="date"]')).toHaveText('26');
+	await page.keyboard.press('Escape');
 	await page.getByRole('button', { name: 'Previous period', exact: true }).click();
 	await expect(page.getByRole('table')).toBeVisible();
 	await page.getByRole('button', { name: 'Current period', exact: true }).click();
@@ -481,26 +500,26 @@ test('the initial/current week comes from server today even across the Sunday bo
 
 test('lost access while paging detail removes the dialog and revoked workspace', async ({ page }) => {
 	const state = await fixture(page);
-	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true }).click();
+	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true }).click();
 	const dialog = page.getByRole('dialog', { name: 'Worklog details' });
 	await expect(dialog.locator('li')).toHaveCount(50);
 	state.allowed = [a];
 	await dialog.getByRole('button', { name: 'Next', exact: true }).click();
 	await expect(dialog).toHaveCount(0);
-	await expect(page.getByRole('status')).toContainText('current access');
+	await expect(page.getByRole('status').filter({ hasText: 'current access' })).toContainText('current access');
 	await expect(page.getByRole('table')).not.toContainText('B-1');
-	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('0.25d');
 });
 
 test('all administrative hierarchies preserve totals, scope and current classification', async ({ page }, testInfo) => {
  const state = await fixture(page);
  for (const label of ['By person','By project','By workspace','By team']) {
   await choose(page,'View',label);
-  await expect(page.getByRole('table').locator('tfoot')).toContainText('4h 5m');
+  await expect(page.getByRole('table').locator('tfoot')).toContainText('0.51d');
   await expect(scope(page)).not.toContainText('Workspace B (b)');
   await expect(page.getByText('Account unavailable · 00000030',{exact:true})).toBeVisible();
-  await expect(page.getByRole('button',{name:'A-1 · 2026-10-20 · 1h 30m',exact:true})).toBeVisible();
-  await expect(page.getByRole('button',{name:'A-1 · 2026-10-20 · 2h',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'A-1 · 2026-10-20 · 1.50h',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'A-1 · 2026-10-20 · 2.00h',exact:true})).toBeVisible();
   expect(state.gridRequests.at(-1)!.searchParams.get('owner_user_ids')).toBe('all');
  }
  await page.screenshot({path:testInfo.outputPath('timesheet-admin-desktop-dark.png'),fullPage:true});
@@ -510,13 +529,13 @@ test('administrative people filters combine, preserve empty selections and survi
  const state = await fixture(page);
  await choose(page,'View','By person');
  await choose(page,'People','Test User · 00000010');
- await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.25d');
  await choose(page,'People','Test User · 00000020');
- await expect(page.getByRole('table').locator('tfoot')).toContainText('4h');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.50d');
  await choose(page,'Projects','No project');
  for (const label of ['By project','By workspace','By team','By person']) {
   await choose(page,'View',label);
-  await expect(page.getByRole('table').locator('tfoot')).toContainText('30m');
+  await expect(page.getByRole('table').locator('tfoot')).toContainText('0.06d');
   expect(state.gridRequests.at(-1)!.searchParams.get('owner_user_ids')).toBe(`${userId},${otherId}`);
   expect(state.gridRequests.at(-1)!.searchParams.get('project_ids')).toBe('none');
  }
@@ -532,15 +551,15 @@ test('opening a person focuses the same report and cell detail includes only tha
  await choose(page,'View','By person');
  await page.getByRole('button',{name:'Open timesheet · Test User · 00000020',exact:true}).click();
  await expect(page.getByRole('tab', { selected: true })).toContainText('By person');
- await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.25d');
  expect(state.gridRequests.at(-1)!.searchParams.get('owner_user_ids')).toBe(otherId);
  expect(state.gridRequests.at(-1)!.searchParams.get('workspace_ids')).toBe(a);
  await choose(page,'People','All');
  await choose(page,'View','By project');
- const cell = page.getByRole('button',{name:'A-1 · 2026-10-20 · 2h',exact:true});
+ const cell = page.getByRole('button',{name:'A-1 · 2026-10-20 · 2.00h',exact:true});
  await cell.focus();await page.keyboard.press('Enter');
  const dialog=page.getByRole('dialog');
- await expect(dialog.getByRole('status')).toContainText('2h · 1 registrations');
+ await expect(dialog.getByRole('status')).toContainText('0.25d · 1 registrations');
  expect(state.detailRequests.at(-1)!.searchParams.get('owner_user_ids')).toBe(otherId);
  expect(state.detailRequests.at(-1)!.searchParams.get('mode')).toBe('project');
  await expect(dialog).toContainText('Registration other');
@@ -553,23 +572,23 @@ test('administrative history restores people, period and grouping after visiting
  await choose(page,'View','By person');
  await choose(page,'People','Test User · 00000020');
  await page.getByRole('button',{name:'Month',exact:true}).click();
- await page.getByRole('button',{name:'A-1 · 2026-10-20 · 2h',exact:true}).click();
+ await page.getByRole('button',{name:'A-1 · 2026-10-20 · 2.00h',exact:true}).click();
  await page.getByRole('dialog').getByRole('link').first().click();
  await expect(page).toHaveURL(/\/a\/issue\/A-1$/);
  await page.goBack();
  await expect(page.getByRole('tab', { selected: true })).toContainText('By person');
  await expect(page.getByRole('table').locator('thead th')).toHaveCount(33);
- await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.25d');
  expect(state.gridRequests.at(-1)!.searchParams.get('owner_user_ids')).toBe(otherId);
 });
 
 test('administrative pagination retains complete totals and all person options', async ({ page }) => {
  const state=await fixture(page,true,'dark','2026-10-20',0,51);
  await choose(page,'View','By person');
- await expect(page.getByRole('table').locator('tfoot')).toContainText('4h 56m');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.62d');
  await page.getByRole('button',{name:'Next',exact:true}).last().click();
  await expect(page.getByText('Page 2 of 2')).toBeVisible();
- await expect(page.getByRole('table').locator('tfoot')).toContainText('4h 56m');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.62d');
  expect(state.gridRequests.at(-1)!.searchParams.get('page')).toBe('2');
  await selector(page,'People').click();
  await expect(page.getByRole('option')).toHaveCount(55);
@@ -581,7 +600,7 @@ test('unavailable identities and administrative detail remain usable on mobile i
  const state=await fixture(page,true,'light');
  await choose(page,'View','By person');
  await choose(page,'People','Account unavailable · 00000030');
- await page.getByRole('button',{name:'A-2 · 2026-10-20 · 5m',exact:true}).click();
+ await page.getByRole('button',{name:'A-2 · 2026-10-20 · 0.08h',exact:true}).click();
  const dialog=page.getByRole('dialog');
  await expect(dialog).toContainText('Account unavailable');
  expect(state.detailRequests.at(-1)!.searchParams.get('owner_user_ids')).toBe(ghostId);
@@ -598,12 +617,12 @@ test('administrative failures and downgrades remove totals and recover within th
  await expect(page.getByRole('table')).toHaveCount(0);
  state.dataFail=false;
  await page.getByRole('button',{name:'Try again',exact:true}).click();
- await expect(page.getByRole('table').locator('tfoot')).toContainText('4h 5m');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.51d');
  state.admin=false;
- await page.getByRole('button',{name:'A-1 · 2026-10-20 · 2h',exact:true}).click();
+ await page.getByRole('button',{name:'A-1 · 2026-10-20 · 2.00h',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
  await expect(page.getByRole('tab', { selected: true })).toContainText('My timesheet');
- await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.25d');
  await expect(scope(page)).not.toContainText('Workspace B (b)');
 });
 
@@ -616,10 +635,10 @@ test('late administrative responses cannot replace a newer project filter', asyn
  await page.getByRole('button',{name:'Refresh',exact:true}).click();
  await waiting;
  await choose(page,'Projects','No project');
- await expect(page.getByRole('table').locator('tfoot')).toContainText('35m');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.07d');
  const stale=page.waitForResponse(response=>{const url=new URL(response.url());return url.pathname==='/api/timesheets'&&url.searchParams.get('project_ids')==='all';});
  release();await stale;
- await expect(page.getByRole('table').locator('tfoot')).toContainText('35m');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.07d');
 });
 
 test('an administrative report retains a personal reference outside its data scope', async ({ page }) => {
@@ -630,7 +649,7 @@ test('an administrative report retains a personal reference outside its data sco
  await expect(page.getByText('Reference: Workspace B (b)',{exact:false})).toBeVisible();
  expect(state.gridRequests.at(-1)!.searchParams.get('reference_workspace_id')).toBe(b);
  expect(state.gridRequests.at(-1)!.searchParams.get('workspace_ids')).toBe(a);
- await expect(page.getByRole('table').locator('tfoot')).toContainText('4h 5m');
+ await expect(page.getByRole('table').locator('tfoot')).toContainText('0.51d');
 });
 
 test('a direct administrative URL and reload restore the full view without session state', async ({ page }) => {
@@ -640,7 +659,7 @@ test('a direct administrative URL and reload restore the full view without sessi
 		await expect(page.getByRole('tab', { name: 'By project', exact: true })).toHaveAttribute('aria-selected', 'true');
 		await expect(page.getByRole('tabpanel', { name: 'By project', exact: true })).toBeVisible();
 		await expect(page.getByRole('table').locator('thead th')).toHaveCount(33);
-		await expect(page.getByRole('table').locator('tfoot')).toContainText('1h 30m');
+		await expect(page.getByRole('table').locator('tfoot')).toContainText('0.19d');
 		await expect(scope(page)).not.toContainText('Workspace B');
 		for (const [key, value] of params) expect(state.gridRequests.at(-1)!.searchParams.get(key)).toBe(value);
 	};
@@ -698,16 +717,16 @@ test('mode and people history restores filters and never caches revoked administ
 	await page.goBack();
 	await expect(page).toHaveURL(personUrl);
 	await expect(page.getByRole('tab', { name: 'By person', exact: true })).toHaveAttribute('aria-selected', 'true');
-	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('0.25d');
 	await page.goForward();
 	await expect(page).toHaveURL(projectUrl);
-	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('0.25d');
 	state.admin = false;
 	await page.goBack();
 	await expect(page.getByRole('tab')).toHaveCount(1);
 	await expect(page.getByRole('tab', { selected: true })).toHaveText('My timesheet');
-	await expect(page.getByRole('status')).toContainText('current access');
-	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h');
+	await expect(page.getByRole('status').filter({ hasText: 'current access' })).toContainText('current access');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('0.25d');
 	await expect(page.getByRole('table')).not.toContainText('Test User');
 	expect(new URL(page.url()).searchParams.get('mode')).toBe('personal');
 	expect(new URL(page.url()).searchParams.has('owner_user_ids')).toBe(false);
@@ -721,8 +740,8 @@ test('revoked URL selections become empty and a replaced reference preserves his
 	await page.reload();
 	await expect(page.getByText('No workspace is selected. Select a workspace to continue.')).toBeVisible();
 	await expect(page.getByRole('table')).toHaveCount(0);
-	await expect(page.getByRole('status')).toContainText('current access');
-	await expect(page.getByRole('status')).toContainText('reference workspace changed');
+	await expect(page.getByRole('status').filter({ hasText: 'current access' })).toContainText('current access');
+	await expect(page.getByRole('status').filter({ hasText: 'reference workspace changed' })).toContainText('reference workspace changed');
 	const restored = new URL(page.url()).searchParams;
 	expect(restored.get('workspace_ids')).toBe('');
 	expect(restored.get('team_ids')).toBe('');
@@ -735,7 +754,7 @@ test('revoked URL selections become empty and a replaced reference preserves his
 test('an unauthorized administrative URL cannot expand into all personal workspaces', async ({ page }) => {
 	const state = await fixture(page, false, 'dark', '2026-10-20', 0, 0, '/a/timesheet?mode=team&workspace_ids=all');
 	await expect(page.getByRole('tab')).toHaveCount(1);
-	await expect(page.getByRole('status')).toContainText('current access');
+	await expect(page.getByRole('status').filter({ hasText: 'current access' })).toContainText('current access');
 	await expect(page.getByText('No workspace is selected. Select a workspace to continue.')).toBeVisible();
 	expect(new URL(page.url()).searchParams.get('workspace_ids')).toBe('');
 	expect(state.gridRequests.at(-1)!.searchParams.get('workspace_ids')).toBe('');
@@ -764,7 +783,7 @@ test('malformed URLs show an error and reset only on an explicit action', async 
 		expect(state.gridRequests).toHaveLength(count);
 	}
 	await page.getByRole('button', { name: 'Reset view', exact: true }).click();
-	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h 51m');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('0.36d');
 	expect(new URL(page.url()).searchParams.get('workspace_ids')).toBe('all');
 });
 
@@ -800,7 +819,7 @@ test('manual tabs and the period calendar work with keyboard and retain focus', 
 test('a removed detail cell restores focus to the page heading', async ({ page }) => {
 	const state = await fixture(page);
 	await choose(page, 'Workspaces', 'Workspace B (b)');
-	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 51m', exact: true }).click();
+	await page.getByRole('button', { name: 'B-1 · 2026-10-20 · 0.85h', exact: true }).click();
 	await expect(page.getByRole('dialog')).toContainText('51 registrations');
 	state.allowed = [a];
 	await page.getByRole('dialog').getByRole('button', { name: 'Next', exact: true }).click();
@@ -824,7 +843,7 @@ for (const theme of ['light', 'dark'] as const) {
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 		await page.screenshot({ path: testInfo.outputPath(`output/playwright/ep04-timesheet-mobile-${theme}.png`), fullPage: true });
 		state.longDetailText = true;
-		await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1h 30m', exact: true }).click();
+		await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1.50h', exact: true }).click();
 		await expect(page.getByRole('dialog')).toContainText('2 registrations');
 		const dialog = page.getByRole('dialog');
 		expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -833,7 +852,8 @@ for (const theme of ['light', 'dark'] as const) {
 		expect(await body.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
 		await page.screenshot({ path: testInfo.outputPath(`output/playwright/ep04-timesheet-detail-${theme}.png`), fullPage: true });
 		await body.evaluate(el => el.scrollTop = el.scrollHeight);
-		await expect(dialog.getByText('Europe/Rome · Today: 2026-10-20 · Reference: Europe/Rome').last()).toBeInViewport();
+		await dialog.getByText('Scope details', { exact: true }).click();
+		await expect(dialog.getByText('Reference: Europe/Rome', { exact: true })).toBeInViewport();
 		await page.keyboard.press('Escape');
 		await expect(dialog).toHaveCount(0);
 		await page.setViewportSize({ width: 1440, height: 1000 });
@@ -843,7 +863,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 test('Timesheet errors and detail close controls are translated into Italian', async ({ page }) => {
 	const state = await fixture(page, true, 'light', '2026-10-20', 0, 0, '/a/timesheet', 'it');
-	await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1h 30m', exact: true }).click();
+	await page.getByRole('button', { name: 'A-1 · 2026-10-20 · 1,50h', exact: true }).click();
 	await expect(page.getByRole('dialog').getByRole('button', { name: 'Chiudi', exact: true })).toHaveCount(2);
 	await page.keyboard.press('Escape');
 	state.dataFail = true;
@@ -856,7 +876,7 @@ test('Timesheet errors and detail close controls are translated into Italian', a
 
 test('a page beyond the last group is replaced with a reachable URL', async ({ page }) => {
 	const state = await fixture(page, true, 'dark', '2026-10-20', 0, 0, '/a/timesheet?page=99');
-	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h 51m');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('0.36d');
 	expect(new URL(page.url()).searchParams.get('page')).toBe('1');
 	expect(state.gridRequests.map(url => url.searchParams.get('page')).filter((value, index, pages) => index === 0 || value !== pages[index - 1])).toEqual(['99', '1']);
 });
@@ -869,5 +889,67 @@ test('backend validation errors clear totals and require an explicit reset', asy
 	await expect(page.getByRole('table')).toHaveCount(0);
 	state.invalidRead = false;
 	await page.getByRole('button', { name: 'Reset view', exact: true }).click();
-	await expect(page.getByRole('table').locator('tfoot')).toContainText('2h 51m');
+	await expect(page.getByRole('table').locator('tfoot')).toContainText('0.36d');
+});
+
+test('TSUX searches 100 authorized options without changing scope and explicitly resets empty filters', async ({ page }) => {
+	await fixture(page, true, 'light', '2026-10-20', 100);
+	const href = page.url();
+	await selector(page, 'Workspaces').click();
+	await page.getByRole('combobox', { name: 'Search · Workspaces', exact: true }).fill('Extra 99');
+	await expect(page.getByRole('option', { name: 'Extra 99 (extra-99)', exact: true })).toBeVisible();
+	await expect(page.getByRole('option', { name: 'Workspace A (a)', exact: true })).toHaveCount(0);
+	expect(page.url()).toBe(href);
+	await page.getByRole('combobox', { name: 'Search · Workspaces', exact: true }).fill('does not exist');
+	await expect(page.getByText('No results.', { exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	expect(page.url()).toBe(href);
+	await choose(page, 'Workspaces', 'Workspace A (a)');
+	await choose(page, 'Workspaces', 'Workspace A (a)');
+	await expect(page.getByText('Workspaces: None selected', { exact: true })).toBeVisible();
+	const before = new URL(page.url()).searchParams;
+	await page.getByRole('button', { name: 'Reset filters', exact: true }).click();
+	await expect(selector(page, 'Workspaces')).toHaveText('All');
+	const after = new URL(page.url()).searchParams;
+	expect(after.get('from')).toBe(before.get('from'));
+	expect(after.get('mode')).toBe(before.get('mode'));
+});
+
+for (const width of [320, 390, 768, 1440]) {
+	for (const theme of ['light', 'dark'] as const) {
+		test(`TSUX grid geometry ${width} ${theme}`, async ({ page }, testInfo) => {
+			await page.setViewportSize({ width, height: 1000 });
+			await fixture(page, true, theme);
+			await page.getByRole('button', { name: 'Month', exact: true }).click();
+			await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+			const region = page.getByRole('region', { name: 'Timesheet grid', exact: true });
+			await region.scrollIntoViewIfNeeded();
+			const viewport = await region.boundingBox();
+			const label = await region.locator('thead th').first().boundingBox();
+			const day = await region.locator('thead th').nth(1).boundingBox();
+			expect(viewport!.width - label!.width).toBeGreaterThanOrEqual(day!.width);
+			expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+			await page.screenshot({ path: testInfo.outputPath(`grid-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
+		});
+	}
+}
+
+test.describe('TSUX 200 percent browser reflow (1440 physical / 720 CSS pixels)', () => {
+	test.use({ viewport: { width: 720, height: 500 }, deviceScaleFactor: 2 });
+	for (const locale of ['en', 'it', 'zh-CN', 'zh-TW']) {
+		test(`translated report ${locale}`, async ({ page }, testInfo) => {
+			await fixture(page, true, 'light', '2026-10-20', 0, 0, '/a/timesheet', locale);
+			await expect(page.getByRole('table')).toBeVisible();
+			await expect(page.getByRole('table').locator('tfoot td').last()).toHaveText(locale === 'it' ? '0,36d' : '0.36d');
+			expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+			await page.screenshot({ path: testInfo.outputPath(`report-200-${locale}.png`), animations: 'disabled' });
+			const cell = page.getByRole('button', { name: `A-1 · 2026-10-20 · ${locale === 'it' ? '1,50h' : '1.50h'}`, exact: true });
+			await cell.focus();
+			await page.keyboard.press('Enter');
+			await expect(page.getByRole('dialog')).toBeVisible();
+			expect(await page.getByRole('dialog').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+			await page.keyboard.press('Escape');
+			await expect(cell).toBeFocused();
+		});
+	}
 });

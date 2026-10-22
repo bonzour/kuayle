@@ -149,6 +149,7 @@
 	}
 </script>
 
+<div aria-busy={loading} class="contents">
 {#if loading}<LoadingState />
 {:else if failed || !policy}<ErrorState message={m['settings.dev_machines.unable_load']()} onretry={load} />
 {:else}
@@ -189,3 +190,5 @@
 	</form>
 	<AlertDialog.Root bind:open={environmentDeleteOpen}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['settings.dev_machines.delete_env_title']()}</AlertDialog.Title><AlertDialog.Description>{m['settings.dev_machines.delete_env_desc']({ name: environmentToDelete?.name ?? '' })}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel onclick={() => (environmentToDelete = null)}>{m['settings.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={deleteEnvironment} disabled={environmentDeleteBusy}>{environmentDeleteBusy ? m['settings.deleting']() : m['settings.dev_machines.delete_env_button']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
 {/if}
+
+</div>
